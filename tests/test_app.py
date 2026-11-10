@@ -101,3 +101,57 @@ def test_errors_are_explained(client):
     assert r.status_code == 400 and "esculpir" in r.json()["error"]
     r = client.post("/api/ui/call", json={"name": "material_set", "arguments": {"project_id": p["id"], "materials": {"nada": {"recipe": "flat"}}}})
     assert r.status_code == 404
+
+
+class FakeModel:
+    """Answers like the vision model would: first the materials, then one redo, then ok."""
+
+    def __init__(self):
+        self.calls = []
+
+    def status(self):
+        return {"available": True, "model": "fake"}
+
+    def ask(self, system, user, images, max_tokens=6000, timeout=None):
+        self.calls.append((user, len(images)))
+        assert images and all(i[:4] == b"\x89PNG" for i in images)
+        if len(self.calls) == 1:
+            return {"scene": "a brick wall on a lawn", "materials": {
+                "brick": {"what": "brick wall", "recipe": "lines", "depth_mm": 0.7, "cutout": False, "enrich": None},
+                "grass": {"what": "lawn", "recipe": "flat", "enrich": {"pattern": "rock", "size_mm": 3, "depth_mm": 0.2}},
+                "h_kage": {"what": "shadow", "recipe": "drop"}, "ghost": {"recipe": "flat"}}}
+        if len(self.calls) == 2:
+            return {"verdict": "redo", "notes": "The joints are too shallow.", "materials": {"brick": {"depth_mm": 5, "recipe": "normal"}}}
+        return {"verdict": "ok", "notes": "Reads well now.", "materials": {}}
+
+
+def test_the_model_directs_looks_and_redoes(client):
+    lib = call(client, "library_scan")
+    p = call(client, "project_create", source=lib["entries"][0]["path"])
+    pid = p["id"]
+    fake = FakeModel()
+    client.svc.llm = fake
+    job = call(client, "direct_start", project_id=pid, rounds=3, wish="juntas marcadas")
+    done = call(client, "job_status", job_id=job["id"])
+    assert done["state"] == "done", done
+    assert done["result"]["director"] == {"rounds": 2, "verdict": "ok", "notes": "Reads well now."}
+    assert len(fake.calls) == 3 and "juntas marcadas" in fake.calls[0][0] and fake.calls[1][1] >= 2
+    p = call(client, "project_get", project_id=pid)
+    brick, grass = p["materials"]["brick"], p["materials"]["grass"]
+    assert brick["depth_mm"] == 2.0                           # clamped: the model asked for 5
+    assert brick["recipe"] == "relief"                        # it asked for normal, but there is no normal map
+    assert grass["enrich"] == {"pattern": "rock", "size_mm": 3.0, "depth_mm": 0.2} and grass["what"] == "lawn"
+    assert [s["step"] for s in p["director"]["log"]] == ["materiales", "prueba 1", "prueba 2"]
+    assert p["results"]["sculpt"]["enriched_materials"] == 1
+    # by hand: an enrichment set and removed
+    call(client, "material_set", project_id=pid, materials={"brick": {"enrich": {"pattern": "cracks", "size_mm": 2, "depth_mm": 0.3}}})
+    assert call(client, "project_get", project_id=pid)["materials"]["brick"]["enrich"]["pattern"] == "cracks"
+    call(client, "material_set", project_id=pid, materials={"brick": {"no_enrich": True}})
+    assert call(client, "project_get", project_id=pid)["materials"]["brick"]["enrich"] is None
+
+
+def test_answers_with_thinking_or_fences_are_read():
+    from phidias_hoard.llm import extract_json
+
+    assert extract_json('<think>hmm {"a": 0}</think>\nSure:\n```json\n{"verdict": "ok"}\n```') == {"verdict": "ok"}
+    assert extract_json('text {"a": {"b": 1}} trailing') == {"a": {"b": 1}}

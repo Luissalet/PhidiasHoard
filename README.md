@@ -22,6 +22,13 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
     the rest gets thickness so it prints.
   - Depth in millimetres, inversion and smoothing per material. A picture shows the texture, the normal map and the
     height map each recipe would carve before you sculpt.
+- **Added detail**: on top of any recipe a material can take sculpted detail its texture does not hold, laid by real
+  size in millimetres whatever the UVs are: rock, cracks, cobbles, bricks, planks, roof tiles, bark, ripples and
+  column flutes, each with the size of its features and its depth.
+- **Directed by the model**: one button hands the sculpt to the family's vision model. It looks at every material and
+  says what it is, chooses recipe, depth, cut-outs and added detail, has a test sculpted, looks at it next to the
+  original from several sides and close up, and redoes it while it is not satisfied; then it makes the final sculpt.
+  You can tell it in words what you want. What it decided and why stays with the project.
 - **Sculpting**: the mesh is refined only where the relief needs it, down to the finest detail you ask for (0.2 to
   0.3 mm for filament, 0.1 mm for resin), inside a triangle budget; when the detail does not fit, it coarsens evenly
   and says so. Neighbouring triangles always agree on their cuts, so the surface never opens.

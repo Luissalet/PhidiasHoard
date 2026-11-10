@@ -80,15 +80,15 @@ def split_once(P: np.ndarray, F: np.ndarray, UV: np.ndarray, parent: np.ndarray,
     return P2, np.concatenate(outF).astype(F.dtype), np.concatenate(outUV).astype(np.float32), np.concatenate(outParent), int(cut.sum())
 
 
-def refine(P: np.ndarray, F: np.ndarray, UV: np.ndarray, needs: Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray],
+def refine(P: np.ndarray, F: np.ndarray, UV: np.ndarray, needs: Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray],
            min_edge: float, *, max_faces: int = 6_000_000, max_passes: int = 14,
            progress: Optional[Callable[[int, int], None]] = None):
-    """Split until no triangle that ``needs(F, UV, parent)`` detail has an edge longer than ``min_edge``, or the triangle
+    """Split until no triangle that ``needs(P, F, UV, parent)`` detail has an edge longer than ``min_edge``, or the triangle
     budget is reached. Returns ``P, F, UV, parent, info``; ``parent`` maps every triangle to the one it came from."""
     parent = np.arange(len(F), dtype=np.int64)
     info = {"passes": 0, "stopped": "done"}
     for i in range(max_passes):
-        want = needs(F, UV, parent)
+        want = needs(P, F, UV, parent)
         if not want.any():
             break
         room = (max_faces - len(F)) // 2                  # a cut edge adds about two triangles

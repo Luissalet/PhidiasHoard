@@ -29,6 +29,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "blender": "",               # path of blender.exe; empty: found by itself
     "voxel_mm": 0.2,             # closing a mesh with Blender: voxel size
     "shell_mm": 1.2,             # closing a mesh with Blender: thickness given to loose sheets
+    "llm_url": "",               # empty: the family's vision model through Hoard Link; else an OpenAI-compatible URL
+    "llm_model": "",
+    "llm_timeout_s": 1800,       # per question to the model
+    "director_rounds": 3,        # test sculpts the model may look at and redo before the final one
+    "director_faces": 2_500_000, # triangle budget of those test sculpts
     "export_dir": "",            # where "save next to the source" does not apply; empty: <data>/exports
 }
 PLINTHS = ("none", "rect", "round")
@@ -132,4 +137,9 @@ def normalize(data: dict[str, Any]) -> dict[str, Any]:
     data["voxel_mm"] = _clamp(data["voxel_mm"], 0.05, 5)
     data["shell_mm"] = _clamp(data["shell_mm"], 0, 20)
     data["export_dir"] = str(data.get("export_dir") or "").strip()
+    data["llm_url"] = str(data.get("llm_url") or "").strip()
+    data["llm_model"] = str(data.get("llm_model") or "").strip()
+    data["llm_timeout_s"] = _clamp(data["llm_timeout_s"], 30, 14400, int)
+    data["director_rounds"] = _clamp(data["director_rounds"], 1, 6, int)
+    data["director_faces"] = _clamp(data["director_faces"], 200_000, 20_000_000, int)
     return data

@@ -88,7 +88,7 @@ def test_refinement_keeps_the_mesh_closed():
     P = np.array([[0, 0, 0], [10, 0, 0], [5, 9, 0], [5, 3, 8]], float)
     F = np.array([[0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]], np.int32)
     UV = np.random.default_rng(1).random((4, 3, 2)).astype(np.float32)
-    want_some = lambda F_, UV_, parent: parent < 2            # only two of the four faces ask for detail
+    want_some = lambda P_, F_, UV_, parent: parent < 2            # only two of the four faces ask for detail
     P2, F2, UV2, parent, info = refine(P, F, UV, want_some, 0.8)
     assert len(F2) > 200 and S.open_edges(F2, len(P2)) == 0
     assert set(np.unique(parent)) == {0, 1, 2, 3}
@@ -102,7 +102,7 @@ def test_refinement_respects_the_budget():
     P = np.array([[0, 0, 0], [100, 0, 0], [0, 100, 0]], float)
     F = np.array([[0, 1, 2]], np.int32)
     UV = np.zeros((1, 3, 2), np.float32)
-    _, F2, _, _, info = refine(P, F, UV, lambda F_, UV_, p: np.ones(len(F_), bool), 0.01, max_faces=5000)
+    _, F2, _, _, info = refine(P, F, UV, lambda P_, F_, UV_, p: np.ones(len(F_), bool), 0.01, max_faces=5000)
     assert len(F2) <= 5200 and info["stopped"] == "budget"
 
 
@@ -275,3 +275,36 @@ def test_steps_turn_a_ramp_into_treads_and_risers(tmp_path):
     area = 0.5 * np.linalg.norm(n, axis=1)
     level = np.abs(n[:, 2]) / np.maximum(2 * area, 1e-12) > 0.97
     assert area[level].sum() / area.sum() > 0.45              # treads are level, the rest are the risers
+
+
+def test_enrich_adds_sized_detail_to_a_plain_material(tmp_path):
+    from phidias_hoard.engine import patterns
+
+    for name in patterns.PATTERNS:
+        tile = patterns.pattern(name)
+        assert tile.shape == (512, 512) and tile.min() < -0.3 and tile.max() > (-0.01 if name == "flutes" else 0.05), name
+    Image.new("RGB", (8, 8), (120, 120, 120)).save(tmp_path / "plain.png")
+    (tmp_path / "w.mtl").write_text("newmtl stone\nmap_Kd plain.png\n")
+    (tmp_path / "w.obj").write_text("mtllib w.mtl\nv 0 0 0\nv 10 0 0\nv 10 10 0\nv 0 10 0\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n"
+                                    "usemtl stone\nf 1/1 2/2 3/3\nf 1/1 3/3 4/4\n")
+    scene = meshio.load_model(tmp_path / "w.obj")
+    st = S.SculptSettings(size_mm=60, min_edge_mm=0.4, ground=False)
+    plain = S.sculpt(scene, {"stone": S.MaterialRecipe("flat")}, st)
+    assert plain.info["triangles"] == 2 and plain.info["max_relief_mm"] == 0
+    rec = S.MaterialRecipe.from_dict({"recipe": "flat", "enrich": {"pattern": "bricks", "size_mm": 4, "depth_mm": 0.5}})
+    out = S.sculpt(scene, {"stone": rec}, st)
+    assert out.info["triangles"] > 5000 and 0.3 < out.info["max_relief_mm"] <= 0.5 + 1e-6
+    assert np.ptp(out.P[:, 1]) > 0.5                          # the wall (facing y) now has relief across it
+    assert S.MaterialRecipe.from_dict({"enrich": {"pattern": "nope"}}).enrich is None
+
+
+def test_budget_with_cutouts_and_sheets_reports_its_real_detail(tmp_path):
+    a = np.zeros((16, 16, 4), np.uint8)
+    a[:, :8] = (60, 140, 60, 255)
+    Image.fromarray(a).save(tmp_path / "leaf.png")
+    (tmp_path / "card.mtl").write_text("newmtl leaf\nmap_Kd leaf.png\n")
+    (tmp_path / "card.obj").write_text("mtllib card.mtl\nv 0 0 0\nv 10 0 0\nv 10 10 0\nv 0 10 0\nvt 0 0\nvt 4 0\nvt 4 4\nvt 0 4\nusemtl leaf\nf 1/1 2/2 3/3\nf 1/1 3/3 4/4\n")
+    scene = meshio.load_model(tmp_path / "card.obj")
+    rec = S.MaterialRecipe.from_dict({"recipe": "flat", "cutout": True, "enrich": {"pattern": "bark", "size_mm": 1, "depth_mm": 0.2}})
+    out = S.sculpt(scene, {"leaf": rec}, S.SculptSettings(size_mm=80, min_edge_mm=0.1, max_faces=20_000, ground=False))
+    assert out.info["stopped"] == "budget" and out.info["edge_mm"] > 0.1 and out.info["sheet_triangles"] > 0

@@ -8,9 +8,16 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
-from . import heights, surface
+from . import heights, patterns, surface
 from .meshio import Scene
 from .refine import edge_ids, refine
+
+
+def clean_enrich(e: Any) -> Optional[dict]:
+    if not isinstance(e, dict) or e.get("pattern") not in patterns.PATTERNS:
+        return None
+    return {"pattern": e["pattern"], "size_mm": float(np.clip(float(e.get("size_mm", 2.0) or 2.0), 0.3, 60.0)),
+            "depth_mm": float(np.clip(float(e.get("depth_mm", 0.3) or 0.3), 0.0, 10.0))}
 
 
 @dataclass
@@ -21,12 +28,13 @@ class MaterialRecipe:
     smooth: float = 0.0
     cutout: bool = False         # cut away what the texture leaves see-through (fences, leaves, railings)
     steps: int = 0               # recipe steps: step edges per texture tile (0 = counted from the texture)
+    enrich: Optional[dict] = None  # detail the texture does not hold: {"pattern", "size_mm", "depth_mm"}
 
     @classmethod
     def from_dict(cls, d: Optional[dict[str, Any]]) -> "MaterialRecipe":
         d = d or {}
         return cls(str(d.get("recipe", "auto")), float(d.get("depth_mm", 0.6)), bool(d.get("invert", False)), float(d.get("smooth", 0.0)),
-                   bool(d.get("cutout", False)), int(d.get("steps", 0) or 0))
+                   bool(d.get("cutout", False)), int(d.get("steps", 0) or 0), clean_enrich(d.get("enrich")))
 
 
 @dataclass
@@ -123,8 +131,11 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
     slopes: dict[int, tuple[np.ndarray, np.ndarray, float]] = {}
     alphas: dict[int, tuple[np.ndarray, heights.RangePyramid]] = {}
     stairs: dict[int, dict[str, tuple[int, float]]] = {}
+    enrich: dict[int, dict] = {}
     for i, mat in enumerate(scene.materials):
         r = recipes.get(mat.name) or MaterialRecipe()
+        if r.recipe != "drop" and r.enrich and r.enrich["depth_mm"] > 0:
+            enrich[i] = r.enrich
         if r.recipe == "drop":
             drop[i] = True
         elif r.cutout and mat.albedo is not None and mat.albedo.shape[2] == 4 and int(mat.albedo[..., 3].min()) < 128:
@@ -166,7 +177,7 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
         nz = np.abs(n0[:, 2]) / np.maximum(np.linalg.norm(n0, axis=1), 1e-12)
         ramp0 = np.isin(M, list(stairs)) & (nz > 0.15) & (nz < 0.985)
 
-    def needs(F_, UV_, parent):
+    def needs(P_, F_, UV_, parent):
         mats = M0[parent]
         want = np.zeros(len(F_), bool)
         for i, pyr in enumerate(pyramids):
@@ -179,6 +190,12 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
                 else:
                     want[sel] = pyr.variation(UV_[sel]) * depth[i] > settings.tolerance_mm
         want |= ramp0[parent]
+        for i, e in enrich.items():                        # enough triangles to draw the pattern's features
+            sel = np.nonzero(mats == i)[0]
+            if len(sel):
+                f = F_[sel]
+                longest = np.maximum.reduce([np.linalg.norm(P_[f[:, k]] - P_[f[:, (k + 1) % 3]], axis=1) for k in range(3)])
+                want[sel] |= longest > max(e["size_mm"] / 5.0, 1e-6)
         for i, (_alpha, pyr) in alphas.items():            # the outline of a cut-out crosses the triangle
             sel = np.nonzero(mats == i)[0]
             if len(sel):
@@ -189,6 +206,12 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
     edge = settings.min_edge_mm                           # the budget is shared out inside refine, longest edges first
     P, F, UV, parent, info = refine(P, F, UV, needs, edge, max_faces=settings.max_faces,
                                     progress=lambda i, n: say("refinando", min(0.1 + 0.05 * i, 0.7)))
+    if info["stopped"] == "budget" and len(F):               # what the budget really reached: the longest edge left to cut
+        want = needs(P, F, UV, parent)
+        if want.any():
+            fw = F[want]
+            lengths = np.concatenate([np.linalg.norm(P[fw[:, k]] - P[fw[:, (k + 1) % 3]], axis=1) for k in range(3)])
+            edge = max(edge, float(np.percentile(lengths, 90)))
     M = M0[parent]
     ground = ground0[parent]
     if alphas:
@@ -207,11 +230,18 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
     say("esculpiendo", 0.75)
     disp_sum = np.zeros(len(P))
     disp_n = np.zeros(len(P))
+    normals = point_normals(P, F)
     for i, h in enumerate(maps):
         sel = np.nonzero(M == i)[0]
         if not len(sel):
             continue
         idx = F[sel].reshape(-1)
+        if i in enrich:
+            e = enrich[i]
+            pts = np.unique(idx)
+            extra = np.zeros(len(P))
+            extra[pts] = patterns.triplanar(e["pattern"], P[pts], normals[pts], e["size_mm"]) * e["depth_mm"]
+            disp_sum += np.bincount(idx, weights=extra[idx], minlength=len(P))
         if i in slopes:
             sx, sy, sign = slopes[i]
             used, hp = surface.integrate(P, F[sel], UV[sel], sx, sy, settings.normal_cutoff_mm)
@@ -229,7 +259,6 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
         disp_sum += np.bincount(idx, weights=val, minlength=len(P))
         disp_n += np.bincount(idx, minlength=len(P))
     disp = disp_sum / np.maximum(disp_n, 1)
-    normals = point_normals(P, F)
     P = P + normals * disp[:, None]
     stair_faces = 0
     if stairs:
@@ -276,15 +305,9 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
             ground = np.concatenate([ground, np.zeros(len(back_tris), bool)])
             sheets = int(sheet.sum())
     say("esculpido", 0.85)
-    if info["stopped"] == "budget" and len(F):               # what the budget really reached: the longest edge left to cut
-        want = needs(F, UV, parent)
-        if want.any():
-            fw = F[want]
-            lengths = np.concatenate([np.linalg.norm(P[fw[:, k]] - P[fw[:, (k + 1) % 3]], axis=1) for k in range(3)])
-            edge = max(edge, float(np.percentile(lengths, 90)))
     info.update({"edge_mm": round(edge, 3), "edge_asked_mm": settings.min_edge_mm, "triangles": int(len(F)), "points": int(len(P)), "scale_mm_per_unit": scale,
                  "size_mm": [round(float(v), 2) for v in (P.max(0) - P.min(0))] if len(P) else [0, 0, 0],
-                 "ground_triangles": int(ground.sum()), "sheet_triangles": sheets, "stair_triangles": stair_faces,
+                 "ground_triangles": int(ground.sum()), "sheet_triangles": sheets, "stair_triangles": stair_faces, "enriched_materials": len(enrich),
                  "max_relief_mm": round(float(np.abs(disp).max()), 3) if len(disp) else 0.0})
     return Sculpted(P, F, M, ground, scale, info)
 

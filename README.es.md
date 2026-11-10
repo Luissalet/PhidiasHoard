@@ -23,6 +23,13 @@ milímetros.
     transparente y el resto recibe grosor para que se pueda imprimir.
   - Profundidad en milímetros, inversión y suavizado por material. Una imagen enseña la textura, el mapa de normales
     y el mapa de alturas que tallaría cada receta antes de esculpir.
+- **Detalle añadido**: además de su receta, un material puede recibir detalle esculpido que su textura no trae, puesto
+  a tamaño real en milímetros sean como sean sus UV: roca, grietas, adoquines, ladrillo, tablas, tejas, corteza, ondas
+  y estrías de columna, cada uno con el tamaño de sus piezas y su profundidad.
+- **Dirigido por el modelo**: un botón deja el esculpido en manos del modelo con visión de la familia. Mira cada
+  material y dice qué es, elige receta, profundidad, recortes y detalle añadido, manda esculpir una prueba, la mira
+  junto al original desde varios lados y de cerca, y la rehace mientras no le convenza; después hace el esculpido
+  final. Puedes decirle con palabras lo que quieres. Lo que decidió y por qué queda guardado en el proyecto.
 - **Esculpido**: la malla se refina solo donde el relieve lo pide, hasta el detalle más fino que le indiques (0,2 a
   0,3 mm para filamento, 0,1 mm para resina), dentro de un presupuesto de triángulos; si el detalle no cabe, se
   reparte por igual y te lo dice. Los triángulos vecinos siempre se cortan de acuerdo, así que la superficie nunca

@@ -18,7 +18,9 @@ import numpy as np
 
 from . import __version__
 from .config import Config, Settings
-from .engine import export, finish, meshio, preview, recipes
+from . import director
+from .engine import export, finish, meshio, patterns, preview, recipes
+from .llm import ModelClient
 from .engine import sculpt as sculpting
 from .errors import PhidiasError
 from .hoard_link.tokens import read_or_create_token
@@ -40,6 +42,7 @@ class Services:
         self.settings = Settings(config.settings_path)
         self.token = read_or_create_token(config.token_path)
         self.store = Store(config.projects_dir)
+        self.llm = ModelClient(self.settings)
         self.started = time.time()
         self.jobs: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
         self._queue: "queue.Queue[Optional[str]]" = queue.Queue()
@@ -65,7 +68,7 @@ class Services:
     def status(self) -> dict[str, Any]:
         blender = finish.find_blender(self.settings["blender"])
         return {"version": __version__, "projects": len(self.store.list()), "library_dirs": self.settings["library_dirs"],
-                "blender": blender or "", "can_close": bool(blender),
+                "blender": blender or "", "can_close": bool(blender), "patterns": list(patterns.PATTERNS), "pattern_labels": patterns.LABELS, "model": self.llm.status(),
                 "jobs": [self._job_public(j) for j in self.jobs.values() if j["state"] in ("queued", "running")]}
 
     # ------------------------------------------------------------------ library
@@ -270,6 +273,8 @@ class Services:
                         cur["invert"] = bool(change["invert"])
                     if change.get("cutout") is not None:
                         cur["cutout"] = bool(change["cutout"])
+                    if "enrich" in change:
+                        cur["enrich"] = sculpting.clean_enrich(change["enrich"])
                     if change.get("steps") is not None:
                         cur["steps"] = int(min(max(int(change["steps"]), 0), 200))
                     if change.get("smooth") is not None:
@@ -310,6 +315,18 @@ class Services:
         return meshio.texture_png(arr)
 
     # ------------------------------------------------------------------ jobs
+    def start_direct(self, pid: str, rounds: int = 0, wish: str = "") -> dict[str, Any]:
+        status = self.llm.status()
+        if not status.get("available"):
+            raise PhidiasError("unavailable", status.get("reason") or "No hay modelo con visión disponible.",
+                               "Comprueba que Faustus y las Sparks están en marcha, o indica un servidor en Ajustes.")
+        return self._enqueue("direct", pid, {"rounds": int(rounds or self.settings["director_rounds"]), "wish": wish})
+
+    def _do_direct(self, pid: str, say, params: dict[str, Any]) -> dict[str, Any]:
+        outcome = director.run(self, pid, params["rounds"], params["wish"], lambda stage, frac: say(stage, frac * 0.7))
+        final = self._do_sculpt(pid, lambda stage, frac: say("esculpido final: " + stage, 0.7 + frac * 0.3))
+        return {**final, "director": {k: outcome[k] for k in ("rounds", "verdict", "notes")}}
+
     def _job_public(self, job: dict[str, Any]) -> dict[str, Any]:
         return {k: job[k] for k in ("id", "kind", "project_id", "state", "stage", "progress", "error", "created", "finished", "result")}
 
@@ -319,14 +336,14 @@ class Services:
             raise PhidiasError("not_found", "No hay ningún trabajo con ese id.")
         return self._job_public(job)
 
-    def _enqueue(self, kind: str, pid: str) -> dict[str, Any]:
+    def _enqueue(self, kind: str, pid: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         self.store.get(pid)
         with self._lock:
             for j in self.jobs.values():
                 if j["project_id"] == pid and j["state"] in ("queued", "running"):
                     raise PhidiasError("busy", "Ese proyecto ya tiene un trabajo en marcha.", "Consulta job_status y espera a que acabe.")
             job = {"id": uuid.uuid4().hex[:10], "kind": kind, "project_id": pid, "state": "queued", "stage": "en cola", "progress": 0.0,
-                   "error": "", "created": time.time(), "finished": None, "result": None}
+                   "error": "", "created": time.time(), "finished": None, "result": None, "params": params or {}}
             self.jobs[job["id"]] = job
             while len(self.jobs) > 60:
                 self.jobs.popitem(last=False)
@@ -363,7 +380,12 @@ class Services:
             job["stage"], job["progress"] = stage, round(float(frac), 3)
 
         try:
-            job["result"] = self._do_sculpt(job["project_id"], say) if job["kind"] == "sculpt" else self._do_close(job["project_id"], say)
+            if job["kind"] == "sculpt":
+                job["result"] = self._do_sculpt(job["project_id"], say)
+            elif job["kind"] == "direct":
+                job["result"] = self._do_direct(job["project_id"], say, job["params"])
+            else:
+                job["result"] = self._do_close(job["project_id"], say)
             job["state"] = "done"
             job["stage"], job["progress"] = "hecho", 1.0
         except PhidiasError as exc:

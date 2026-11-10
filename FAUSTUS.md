@@ -1,6 +1,6 @@
 # Phidias's Hoard — what it can and cannot do
 
-App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (16 tools; `material_look` and
+App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (17 tools; `material_look` and
 `model_look` return MCP images). Connector preset: its own `faustus-plugin.json`.
 
 ## Can
@@ -20,6 +20,15 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - Show a material (`material_look`): texture, normal map and the height map a recipe would carve.
 - Recipes (`material_set`; `"*"` = every material): `normal`, `relief`, `lines`, `steps`, `flat`, `drop`, `auto`;
   `depth_mm`, `invert`, `smooth`, `cutout`, `steps` (edges per tile, 0 = counted from the texture).
+- Added detail (`material_set` with `enrich: {pattern, size_mm, depth_mm}`, `no_enrich` removes it): rock, cracks,
+  cobble, bricks, planks, tiles, bark, ripples, flutes, laid by position in millimetres (three projections blended),
+  on top of any recipe; the mesh is refined enough to draw the pattern.
+- Direction by the vision model (`direct_start` with optional `rounds` and `wish`): reads the materials from pictures,
+  sets recipe, depth, cut-out, steps and enrich per material, sculpts a test inside `director_faces`, looks at it
+  next to the original and at close-ups, and redoes it up to `director_rounds` times before the final sculpt. Its
+  answers are clamped (depths, sizes, no normal recipe without a normal map, no cut-out on atlases). The project keeps
+  `director` (model, wish and the log of each step with verdict, notes and changes) and `what` per material.
+  Model: the family's vision model through Hoard Link, or `llm_url`/`llm_model` in settings.
 - Print settings (`project_set`): `size_mm` (longest side), `min_edge_mm`, `tolerance_mm`, `max_faces`, `ground`,
   `base_mm`, `plinth` (none, rect, round), `plinth_margin_mm`, `normal_cutoff_mm`, `sheet_mm`.
 - Sculpt in the background (`sculpt_start`, `job_status`): adaptive refinement that never opens the mesh, triangle
@@ -41,7 +50,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   relief than the original textures would.
 - Turn foliage cards into volumes (they stay sheets with thickness) or rebuild the inside of buildings.
 - Fill enclosed hollow spaces in the watertight solid, or keep detail finer than its voxel size there.
-- Recognise stairs by shape: the steps recipe is chosen by material name or by hand.
+- Recognise stairs by shape: the steps recipe is chosen by material name, by the model or by hand.
+- Direct a sculpt without a vision model reachable, or cancel a direction half way.
 - Split a model into parts for a small printer, add supports or slice.
 - Undo a sculpt: each sculpt replaces the previous result of the project.
 
@@ -50,8 +60,9 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - `phidias_hoard/engine/`: `meshio.py` (loaders, atlas detection, zips), `heights.py` (height maps from textures,
   step patterns, sampling, detail pyramids), `surface.py` (normal maps integrated on the mesh), `refine.py` (adaptive
   refinement), `sculpt.py` (the pipeline, ground block, sheets, plinth), `recipes.py` (guesses and the material
-  picture), `preview.py` (pictures), `export.py` (STL, PLY, viewer buffers), `finish.py` + `blender_close.py` (the
+  picture), `patterns.py` (added detail), `preview.py` (pictures), `export.py` (STL, PLY, viewer buffers), `finish.py` + `blender_close.py` (the
   watertight solid).
+- `phidias_hoard/director.py` (the model's direction), `llm.py` (the vision model client).
 - `phidias_hoard/services.py` (library, projects, the job worker), `agent_tools.py` (the catalogue), `api/` (routes),
   `static/` (the studio), `store.py` (projects on disk).
 - Data: `data/settings.json`, `data/projects/<id>/` (`project.json`, unpacked zip in `src/`, `sculpt.stl`,

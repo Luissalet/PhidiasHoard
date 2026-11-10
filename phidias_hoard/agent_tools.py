@@ -19,7 +19,7 @@ from .services import PROJECT_SETTINGS, Services
 
 AGENT_INSTRUCTIONS = """Phidias's Hoard turns low-poly game scenery (OBJ with its MTL and textures, GLB/glTF, or zips of them) into high-resolution models for 3D printing: the relief the textures only draw (cracks, joints between blocks, steps, the lines of a column, roof tiles) is sculpted into the mesh.
 Flow: library_scan lists the game models in the user's folders; project_create opens one (it reads the materials and guesses a recipe for each); material_look shows a material's texture, its normal map and the height map a recipe would carve; material_set changes recipes and depths; project_set changes the print size and detail; sculpt_start sculpts in the background (job_status); model_look shows the result, alone or next to the original, from any angle or zoomed on a region; close_start fuses it into one watertight solid with Blender; result_export writes the STL in millimetres.
-Recipes: normal (relief from the normal map, when there is one: the best source), relief (dark lines carved plus soft bumps from light and shade), lines (only what the texture draws darker: joints, cracks, flutes), steps (a ramp whose texture draws steps becomes real steps: flat treads and risers, as many as the texture draws or the number given in steps), flat (leave the surface as it is: water, glass, plain colours), drop (remove it: shadow planes, flames, glows, sky), auto. depth_mm is how deep the relief goes at print size (0.3-1.0 reads well on a 150 mm model). invert swaps carved and raised. cutout cuts away what the texture leaves see-through (fences, railings, leaves, tree cards) and gives the rest thickness (sheet_mm).
+Recipes: normal (relief from the normal map, when there is one: the best source), relief (dark lines carved plus soft bumps from light and shade), lines (only what the texture draws darker: joints, cracks, flutes), steps (a ramp whose texture draws steps becomes real steps: flat treads and risers, as many as the texture draws or the number given in steps), flat (leave the surface as it is: water, glass, plain colours), drop (remove it: shadow planes, flames, glows, sky), auto. depth_mm is how deep the relief goes at print size (0.3-1.0 reads well on a 150 mm model). invert swaps carved and raised. enrich adds sculpted detail the texture does not hold (rock, cracks, cobble, bricks, planks, tiles, bark, ripples, flutes) at a real size in millimetres, on top of any recipe. direct_start hands the whole decision to the vision model, which sculpts, looks and redoes. cutout cuts away what the texture leaves see-through (fences, railings, leaves, tree cards) and gives the rest thickness (sheet_mm).
 The ground of the scene (faces looking up with nothing below) is closed into a solid block down to a base so it prints without supports under the terrain."""
 
 RECIPE = Literal["auto", "normal", "lines", "relief", "steps", "flat", "drop"]
@@ -76,7 +76,20 @@ class MaterialChange(BaseModel):
     invert: Optional[bool] = None
     smooth: Optional[float] = Field(None, ge=0, le=8)
     steps: Optional[int] = Field(None, ge=0, le=200, description="Recipe steps: step edges per texture tile; 0 counts them from the texture.")
+    enrich: Optional[EnrichArgs] = Field(None, description="Sculpted detail the texture does not hold, laid by real size. Send no_enrich=true to remove it.")
+    no_enrich: Optional[bool] = Field(None, description="true removes the enrich of the material.")
     cutout: Optional[bool] = Field(None, description="Cut away what the texture leaves see-through (fences, leaves, railings) and give the rest thickness.")
+
+
+class EnrichArgs(BaseModel):
+    pattern: Literal["rock", "cracks", "cobble", "bricks", "planks", "tiles", "bark", "ripples", "flutes"]
+    size_mm: float = Field(2.0, ge=0.3, le=60, description="Size of one feature (a stone, a brick course, a plank) on the print.")
+    depth_mm: float = Field(0.3, ge=0, le=10)
+
+
+class DirectArgs(ProjectId):
+    rounds: int = Field(0, ge=0, le=6, description="Test sculpts the model may look at and redo (0 = the setting director_rounds).")
+    wish: str = Field("", max_length=500, description='What the user wants from this sculpt, in words ("more worn stone", "keep the floor smooth").')
 
 
 class MaterialSetArgs(ProjectId):
@@ -139,8 +152,14 @@ def _set(svc: Services, a: SetArgs) -> dict[str, Any]:
 
 
 def _material_set(svc: Services, a: MaterialSetArgs) -> dict[str, Any]:
-    p = svc.update_project(a.project_id, materials={k: v.model_dump(exclude_none=True) for k, v in a.materials.items()})
-    return {"id": p["id"], "materials": {k: {x: v[x] for x in ("recipe", "depth_mm", "invert", "smooth", "cutout", "steps") if x in v} for k, v in p["materials"].items()}}
+    changes = {}
+    for k, v in a.materials.items():
+        c = v.model_dump(exclude_none=True)
+        if c.pop("no_enrich", False):
+            c["enrich"] = None
+        changes[k] = c
+    p = svc.update_project(a.project_id, materials=changes)
+    return {"id": p["id"], "materials": {k: {x: v[x] for x in ("recipe", "depth_mm", "invert", "smooth", "cutout", "steps", "enrich") if x in v} for k, v in p["materials"].items()}}
 
 
 def _material_look(svc: Services, a: MaterialLookArgs) -> dict[str, Any]:
@@ -176,6 +195,10 @@ TOOLS: list[Tool] = [
     Tool("sculpt_start", _d("Sculpt the project in the background with its current recipes and settings. Returns a job id for job_status.",
                             "Replaces the previous sculpt of the project.", "esculpir, generar alta resolución"),
          ProjectId, ann(draft_safe=True), lambda s, a: s.start_sculpt(a.project_id)),
+    Tool("direct_start", _d("Let the family's vision model direct the sculpt: it looks at every material, decides recipe, depth, cut-outs and enrichment, "
+                            "has a test sculpted, looks at it next to the original and redoes it while it is not satisfied; then the final sculpt. Returns a job id.",
+                            "What it decided and why is kept in the project (director). Needs the vision model reachable (status.model).", "dirigir con IA, que lo decida el modelo, rehacer"),
+         DirectArgs, ann(draft_safe=True), lambda s, a: s.start_direct(a.project_id, a.rounds, a.wish)),
     Tool("close_start", _d("Fuse the sculpt into one watertight solid with Blender (thickens loose sheets, voxel remesh). Returns a job id.",
                            "Detail finer than the voxel size (setting voxel_mm) is lost; the sculpt stays available.", "cerrar malla, estanco, manifold"),
          ProjectId, ann(draft_safe=True), lambda s, a: s.start_close(a.project_id)),

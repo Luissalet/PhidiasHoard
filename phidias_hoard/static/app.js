@@ -6,6 +6,7 @@ import { $, el, api, toast, fail, modal, confirmBox, nf, store } from '/ui.js';
 const call = (name, args = {}) => api('/api/ui/call', { method: 'POST', body: { name, arguments: args } });
 const state = { project: null, which: 'before', library: null, projects: [], poll: null, loaded: '' };
 const RECIPES = [['auto', 'Automática'], ['normal', 'Mapa de normales'], ['relief', 'Relieve'], ['lines', 'Solo líneas'], ['steps', 'Escalones'], ['flat', 'Liso'], ['drop', 'Quitar']];
+const PATTERNS = [['', 'Sin detalle añadido'], ['rock', 'Roca'], ['cracks', 'Grietas'], ['cobble', 'Adoquines'], ['bricks', 'Ladrillo'], ['planks', 'Tablas'], ['tiles', 'Tejas'], ['bark', 'Corteza'], ['ripples', 'Ondas'], ['flutes', 'Estrías de columna']];
 const WHY = { before: 'Original', sculpt: 'Esculpido', closed: 'Sólido cerrado' };
 
 // ------------------------------------------------------------------ 3-D view
@@ -179,6 +180,7 @@ function setProject(p, keepView = false) {
   if (![...faces.options].some((o) => +o.value === +s.max_faces)) faces.append(el('option', { value: s.max_faces, text: `${nf.format(s.max_faces)}` }));
   faces.value = s.max_faces;
   drawMaterials();
+  drawDirector();
   drawResult();
   refreshButtons();
   loadMesh(!changed);
@@ -195,6 +197,7 @@ function refreshButtons() {
     b.classList.toggle('active', w === state.which);
   }
   $('btn-sculpt').disabled = !p || busy;
+  $('btn-direct').disabled = !p || busy;
   $('btn-sculpt').textContent = r.sculpt ? 'Volver a esculpir' : 'Esculpir';
   $('btn-close').disabled = !p || busy || !r.sculpt;
   $('btn-download').disabled = !p || !r.sculpt;
@@ -217,6 +220,30 @@ function drawResult() {
   bar.append(el('span', { text: `${human(r.file_bytes)} · ${r.seconds} s` }));
 }
 
+function drawDirector() {
+  const d = state.project.director, card = $('director-card'), box = $('director-log');
+  card.hidden = !d;
+  if (!d) return;
+  $('director-model').textContent = d.model || '';
+  box.replaceChildren();
+  for (const step of d.log) {
+    const n = Object.keys(step.materials || {}).length;
+    const head = step.step === 'materiales' ? 'Lectura de los materiales' : `${step.step[0].toUpperCase()}${step.step.slice(1)}: ${step.verdict === 'redo' ? 'rehacer' : 'aceptada'}`;
+    box.append(el('div', { class: 'dstep' }, el('b', { text: head }), el('div', { text: step.scene || step.notes || '' }),
+      n ? el('div', { class: 'dchg', text: `${n} material${n === 1 ? '' : 'es'} cambiado${n === 1 ? '' : 's'}: ${Object.keys(step.materials).slice(0, 6).join(', ')}${n > 6 ? '…' : ''}` }) : null));
+  }
+}
+
+async function startDirect() {
+  const wish = el('textarea', { class: 'input', rows: '3', placeholder: 'Opcional: qué quieres de este esculpido (piedra más gastada, suelo liso, tejas muy marcadas…)' });
+  const r = await modal({ title: 'Dirigir con IA', body: [
+    el('p', { text: 'El modelo mira cada material, decide receta, profundidad, recortes y detalle añadido, esculpe una prueba, la mira junto al original y la rehace mientras no le convenza. Después hace el esculpido final. Sus decisiones sustituyen a las recetas actuales.' }), wish],
+    buttons: [{ label: 'Cancelar', value: null }, { label: 'Empezar', value: 'ok', kind: 'primary' }] });
+  if (!r) return;
+  clearTimeout(saveTimer);
+  try { watchJob((await call('direct_start', { project_id: state.project.id, wish: wish.value })).id); } catch (err) { fail(err); }
+}
+
 function drawMaterials() {
   const p = state.project, list = $('mat-list');
   const mats = Object.entries(p.materials).sort((a, b) => b[1].share - a[1].share);
@@ -229,14 +256,22 @@ function drawMaterials() {
       'aria-label': `Profundidad de ${name}`, onchange: (ev) => saveMaterial(name, { depth_mm: +ev.target.value }) });
     const cut = m.transparent > 0.01 && m.transparent < 0.99 ? el('label', { class: 'check', title: 'Quitar lo que la textura deja transparente (vallas, hojas, barandillas) y dar grosor al resto' },
       el('input', { type: 'checkbox', checked: !!m.cutout, onchange: (ev) => saveMaterial(name, { cutout: ev.target.checked }) }), el('span', { text: 'Recortar por transparencia' })) : null;
+    const e = m.enrich || null;
+    const ePat = el('select', { class: 'input', title: 'Detalle esculpido que la textura no trae', 'aria-label': `Detalle añadido de ${name}` },
+      PATTERNS.map(([v, t]) => el('option', { value: v, text: t, selected: v === (e ? e.pattern : '') })));
+    const eSize = el('input', { class: 'input', type: 'number', min: '0.3', max: '60', step: '0.5', value: e ? e.size_mm : 2, title: 'Tamaño de cada piedra, hilada o tabla (mm)', disabled: !e });
+    const eDepth = el('input', { class: 'input', type: 'number', min: '0', max: '10', step: '0.1', value: e ? e.depth_mm : 0.3, title: 'Profundidad del detalle (mm)', disabled: !e });
+    const saveEnrich = () => saveMaterial(name, ePat.value ? { enrich: { pattern: ePat.value, size_mm: +eSize.value || 2, depth_mm: +eDepth.value || 0.3 } } : { no_enrich: true });
+    for (const n of [ePat, eSize, eDepth]) n.addEventListener('change', saveEnrich);
     const tex = m.texture[0] ? `${m.texture[0]}×${m.texture[1]}` : 'sin textura';
     list.append(el('div', { class: `mat${m.recipe === 'drop' ? ' dropped' : ''}` },
       el('button', { class: 'pic', title: 'Ver textura, normales y mapa de alturas', onclick: () => openMaterial(name) },
         el('img', { class: 'thumb', src: `/api/projects/${p.id}/materials/thumb?name=${encodeURIComponent(name)}`, alt: '', loading: 'lazy' })),
       el('div', {},
         el('div', { class: 'mname', text: name, title: name }),
+        m.what ? el('div', { class: 'mwhat', text: m.what, title: m.what }) : null,
         el('div', { class: 'mmeta', text: `${(m.share * 100).toFixed(1)} % · ${tex}${m.normal_map ? ' · normales' : ''}${m.why ? ` · ${m.why}` : ''}` }),
-        el('div', { class: 'mctl' }, recipe, depth), cut)));
+        el('div', { class: 'mctl' }, recipe, depth), el('div', { class: 'menr' }, ePat, eSize, eDepth), cut)));
   }
 }
 
@@ -291,7 +326,7 @@ function watchJob(id) {
   const tick = async () => {
     let j;
     try { j = await call('job_status', { job_id: id }); } catch (err) { clearInterval(state.poll); state.poll = null; $('job').hidden = true; refreshButtons(); return; }
-    $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : 'Esculpiendo'} · ${j.stage}`;
+    $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : (j.kind === 'direct' ? 'Dirigiendo' : 'Esculpiendo')} · ${j.stage}`;
     $('job-fill').style.width = `${Math.round(j.progress * 100)}%`;
     if (j.state === 'done' || j.state === 'error') {
       clearInterval(state.poll); state.poll = null; $('job').hidden = true;
@@ -352,6 +387,7 @@ $('btn-settings').addEventListener('click', openSettings);
 for (const id of ['s-size', 's-edge', 's-faces', 's-ground', 's-base', 's-plinth']) $(id).addEventListener('change', saveSettings);
 for (const b of $('view-seg').children) b.addEventListener('click', () => { state.which = b.dataset.which; refreshButtons(); drawResult(); loadMesh(true); });
 $('btn-sculpt').addEventListener('click', () => startJob('sculpt_start'));
+$('btn-direct').addEventListener('click', startDirect);
 $('btn-close').addEventListener('click', () => startJob('close_start'));
 $('btn-download').addEventListener('click', () => {
   const which = state.which === 'closed' ? 'closed' : 'sculpt';
