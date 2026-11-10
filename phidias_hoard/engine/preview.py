@@ -4,6 +4,7 @@ what you see is the geometry that will be printed (carved lines, steps, cracks),
 from __future__ import annotations
 
 import io
+from typing import Optional
 
 import numpy as np
 from PIL import Image
@@ -22,8 +23,27 @@ def _camera(yaw: float, pitch: float) -> np.ndarray:
     return np.stack([right, up, -forward])
 
 
+def read_polygons(path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """An OBJ written with quads: points, fan triangles for shading, and the polygons' own edges (the topology)."""
+    pts, tris, edges = [], [], []
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if line.startswith("v "):
+                a = line.split()
+                pts.append((float(a[1]), float(a[2]), float(a[3])))
+            elif line.startswith("f "):
+                idx = [int(tok.split("/")[0]) - 1 for tok in line.split()[1:]]
+                for k in range(1, len(idx) - 1):
+                    tris.append((idx[0], idx[k], idx[k + 1]))
+                for k in range(len(idx)):
+                    a, b = idx[k], idx[(k + 1) % len(idx)]
+                    edges.append((a, b) if a < b else (b, a))
+    E = np.unique(np.asarray(edges, np.int64).reshape(-1, 2), axis=0) if edges else np.zeros((0, 2), np.int64)
+    return np.asarray(pts, np.float64).reshape(-1, 3), np.asarray(tris, np.int32).reshape(-1, 3), E
+
+
 def render(P: np.ndarray, F: np.ndarray, *, yaw: float = 35, pitch: float = 30, size: int = 900, region=None,
-           seed: int = 3) -> Image.Image:
+           seed: int = 3, edges: Optional[np.ndarray] = None) -> Image.Image:
     """``region`` = (cx, cy, cz, radius) in model millimetres zooms on a detail."""
     R = _camera(yaw, pitch)
     if region is not None:
@@ -79,6 +99,20 @@ def render(P: np.ndarray, F: np.ndarray, *, yaw: float = 35, pitch: float = 30, 
     base = np.array([222, 205, 180], np.float32)
     img = np.clip(shade[..., None] * base, 0, 255)
     img[~hit2] = (24, 22, 28)
+    if edges is not None and len(edges):                   # the mesh's own edges, drawn where they are in front
+        a2, b2 = Q[edges[:, 0]], Q[edges[:, 1]]
+        length = np.linalg.norm((b2 - a2)[:, :2], axis=1) / px
+        count = np.clip(np.ceil(length * 1.5).astype(np.int64), 2, 4000)
+        owner = np.repeat(np.arange(len(edges)), count)
+        start = np.cumsum(count) - count
+        f = (np.arange(len(owner)) - start[owner]) / np.maximum(count[owner] - 1, 1)
+        pts = a2[owner] * (1 - f[:, None]) + b2[owner] * f[:, None]
+        ex = np.floor((pts[:, 0] - lo[0]) / px).astype(np.int64)
+        ey = size - 1 - np.floor((pts[:, 1] - lo[1]) / px).astype(np.int64)
+        ok = (ex >= 0) & (ex < size) & (ey >= 0) & (ey < size)
+        ex, ey, ez = ex[ok], ey[ok], pts[ok, 2]
+        front = ez >= d[ey, ex] - px * 2.5
+        img[ey[front], ex[front]] = img[ey[front], ex[front]] * 0.25
     return Image.fromarray(img.astype(np.uint8))
 
 

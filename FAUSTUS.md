@@ -1,9 +1,22 @@
 # Phidias's Hoard — what it can and cannot do
 
-App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (17 tools; `material_look` and
+App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (20 tools; `material_look` and
 `model_look` return MCP images). Connector preset: its own `faustus-plugin.json`.
 
 ## Can
+
+- Remodel (`remodel_plan`, `remodel_set`, `remodel_start`): split the model into connected pieces (position, size,
+  profile = outline size at every height with corners, materials and texture repeats; equal shapes are one type),
+  guess what each is, and build each in Blender (`remodel/blender_build.py`, with the Blender found or the `bpy`
+  module) as quads: `roof` (fascia, concave slope, corner lift, half-round tiles shortened at the hips, hip ridges,
+  quad soffit; params tiles, rows, concave, corner_lift, tile_radius, bevel), `body` (posts, beams at every level,
+  one recessed panel per bay and band; zones panel/lattice/plain, bars, door_bay, post_section, post, beam,
+  panel_depth, bays_x, bays_y), `block` (loft of the profile, bevel), `lathe` (profile revolved; segments), `stairs`
+  (steps, axis, flip), `keep` (original welded, triangles joined to quads, bevel), `drop`. A piece whose builder
+  fails falls back to `keep`. Output in `data/projects/<id>/remodel/`: `remodel.blend` (object per piece in
+  collections by kind, bevel modifiers live), `remodel.obj` (modifiers applied, quads), `remodel.json` (verts,
+  quads, tris, n-gons per object). `model_look` with `result: remodel` draws the edges (`wire`); `result_export`
+  copies the .blend and .obj.
 
 - List the game models in the library folders (`library_scan`: OBJ, Collada, GLB, glTF, loose or inside zips; one
   entry per scene, richest format first; `query`, `group`, `limit`, `offset`; `groups` counts per top folder).
@@ -44,6 +57,10 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   recipe and depth per material, the picture of each recipe, job progress, download and save buttons, settings.
 
 ## Cannot
+
+- Remodel pieces it has no builder for: irregular rock, terrain, organic shapes and anything not built on rectangular
+  or round outlines stay as the cleaned original (`keep`). The model does not choose the pieces' kinds yet.
+- Read a piece's ornament from its texture into the remodel (panel layouts, tile counts and bays are parameters).
 
 - Read FBX, `.blend`, `.smd` or engine-native formats (they have to be converted to one of the four formats).
 - Invent relief a texture does not hold: plain colours stay flat; a baked atlas without normal maps gives coarser

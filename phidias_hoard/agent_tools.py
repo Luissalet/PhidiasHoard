@@ -18,6 +18,7 @@ from .hoard_link.agentkit import uncapped  # noqa: F401 - re-exported for the UI
 from .services import PROJECT_SETTINGS, Services
 
 AGENT_INSTRUCTIONS = """Phidias's Hoard turns low-poly game scenery (OBJ with its MTL and textures, GLB/glTF, or zips of them) into high-resolution models for 3D printing: the relief the textures only draw (cracks, joints between blocks, steps, the lines of a column, roof tiles) is sculpted into the mesh.
+Two ways of working. Remodel (the main one): remodel_plan takes the model apart into pieces and says what each will be rebuilt as; remodel_set corrects it; remodel_start rebuilds everything in Blender with modelling operations (real roof tiles, posts and panels, turned spires) in clean quads, as a .blend and an OBJ; model_look with result remodel shows it with its edges. Sculpt (displacement, dense triangles): the rest of the tools.
 Flow: library_scan lists the game models in the user's folders; project_create opens one (it reads the materials and guesses a recipe for each); material_look shows a material's texture, its normal map and the height map a recipe would carve; material_set changes recipes and depths; project_set changes the print size and detail; sculpt_start sculpts in the background (job_status); model_look shows the result, alone or next to the original, from any angle or zoomed on a region; close_start fuses it into one watertight solid with Blender; result_export writes the STL in millimetres.
 Recipes: normal (relief from the normal map, when there is one: the best source), relief (dark lines carved plus soft bumps from light and shade), lines (only what the texture draws darker: joints, cracks, flutes), steps (a ramp whose texture draws steps becomes real steps: flat treads and risers, as many as the texture draws or the number given in steps), flat (leave the surface as it is: water, glass, plain colours), drop (remove it: shadow planes, flames, glows, sky), auto. depth_mm is how deep the relief goes at print size (0.3-1.0 reads well on a 150 mm model). invert swaps carved and raised. enrich adds sculpted detail the texture does not hold (rock, cracks, cobble, bricks, planks, tiles, bark, ripples, flutes) at a real size in millimetres, on top of any recipe. direct_start hands the whole decision to the vision model, which sculpts, looks and redoes. cutout cuts away what the texture leaves see-through (fences, railings, leaves, tree cards) and gives the rest thickness (sheet_mm).
 The ground of the scene (faces looking up with nothing below) is closed into a solid block down to a base so it prints without supports under the terrain."""
@@ -92,6 +93,18 @@ class DirectArgs(ProjectId):
     wish: str = Field("", max_length=500, description='What the user wants from this sculpt, in words ("more worn stone", "keep the floor smooth").')
 
 
+class PieceChange(BaseModel):
+    kind: Optional[Literal["roof", "body", "block", "lathe", "stairs", "keep", "drop"]] = None
+    params: Optional[dict[str, Any]] = Field(None, description="roof: tiles (ribs per side), rows, concave (1-2), corner_lift (0-0.8), tile_radius, bevel. "
+                                             "body: bays_x, bays_y, zones (per band bottom to top: panel, lattice or plain), bars, door_bay (bay of the front, or null), "
+                                             "post_section (square, round), post, beam, panel_depth. block: bevel. lathe: segments, bevel. stairs: steps, axis (x, y), flip. Sizes in mm.")
+    what: Optional[str] = Field(None, max_length=160)
+
+
+class RemodelSetArgs(ProjectId):
+    types: dict[str, PieceChange] = Field(..., description='Piece type (the number remodel_plan gives) -> what to build it as. Example: {"4": {"kind": "roof", "params": {"tiles": 20, "corner_lift": 0.5}}}')
+
+
 class MaterialSetArgs(ProjectId):
     materials: dict[str, MaterialChange] = Field(..., description='Material name -> changes; the name "*" applies to every material. '
                                                                   'Example: {"roof_tou01": {"recipe": "lines", "depth_mm": 0.8}, "h_kage": {"recipe": "drop"}}')
@@ -103,7 +116,8 @@ class MaterialLookArgs(ProjectId):
 
 
 class LookArgs(ProjectId):
-    result: Literal["before", "sculpt", "closed"] = Field("sculpt", description="before = the game model as it came; sculpt = the sculpted mesh; closed = the watertight solid.")
+    result: Literal["before", "sculpt", "closed", "remodel"] = Field("sculpt", description="before = the game model as it came; remodel = the model rebuilt in quads (drawn with its edges); sculpt = the displaced mesh; closed = the watertight solid.")
+    wire: bool = Field(True, description="For remodel: draw the edges of the mesh, to judge the topology.")
     view: Literal[tuple(VIEWS)] = Field("iso")  # type: ignore[valid-type]
     yaw: Optional[float] = Field(None, ge=-360, le=360, description="Degrees around the model (0 = from the front, 90 = from the left side).")
     pitch: Optional[float] = Field(None, ge=-89, le=89, description="Degrees above the horizon.")
@@ -113,7 +127,7 @@ class LookArgs(ProjectId):
 
 
 class ExportArgs(ProjectId):
-    result: Optional[Literal["sculpt", "closed"]] = Field(None, description="Default: the closed solid when there is one, else the sculpt.")
+    result: Optional[Literal["remodel", "sculpt", "closed"]] = Field(None, description="Default: the remodel (.blend and .obj in quads) when there is one, else the closed solid, else the sculpt.")
     folder: str = Field("", max_length=1000, description="Where to write it; default: a Phidias folder next to the source model.")
 
 
@@ -170,7 +184,7 @@ def _material_look(svc: Services, a: MaterialLookArgs) -> dict[str, Any]:
 
 
 def _look(svc: Services, a: LookArgs) -> dict[str, Any]:
-    data = svc.look(a.project_id, a.result, a.view, a.yaw, a.pitch, a.size, a.region, a.compare)
+    data = svc.look(a.project_id, a.result, a.view, a.yaw, a.pitch, a.size, a.region, a.compare, a.wire)
     return {"project_id": a.project_id, "result": a.result, "view": a.view, "_image": _img(data)}
 
 
@@ -195,6 +209,15 @@ TOOLS: list[Tool] = [
     Tool("sculpt_start", _d("Sculpt the project in the background with its current recipes and settings. Returns a job id for job_status.",
                             "Replaces the previous sculpt of the project.", "esculpir, generar alta resolución"),
          ProjectId, ann(draft_safe=True), lambda s, a: s.start_sculpt(a.project_id)),
+    Tool("remodel_plan", _d("The model taken apart into its pieces: each type of piece with how many there are, its size, its materials and what it will be rebuilt as.",
+                            "Kinds: roof (hipped roof with real tiles, hip ridges and upturned eaves), body (a storey: posts, beams, recessed panels, lattices, a door), "
+                            "block (bevelled slab or plinth following the piece's profile), lathe (turned piece from its profile: spires, columns), stairs, "
+                            "keep (the original piece cleaned into quads), drop.", "piezas, despiece"), ProjectId, ann(read_only=True), lambda s, a: s.remodel_plan(a.project_id)),
+    Tool("remodel_set", _d("Choose what a type of piece is rebuilt as and with which parameters.", synonyms="cambiar pieza, tejas, vanos"),
+         RemodelSetArgs, ann(draft_safe=True, idempotent=True), lambda s, a: s.remodel_set(a.project_id, {k: v.model_dump(exclude_none=True) for k, v in a.types.items()})),
+    Tool("remodel_start", _d("Rebuild the model piece by piece in Blender with modelling operations and clean quads, using the game model only as the reference "
+                             "for sizes and positions. Returns a job id. Result: a .blend (one object per piece, bevels as live modifiers) and an OBJ in quads.",
+                             synonyms="remodelar, topología limpia, reconstruir"), ProjectId, ann(draft_safe=True), lambda s, a: s.start_remodel(a.project_id)),
     Tool("direct_start", _d("Let the family's vision model direct the sculpt: it looks at every material, decides recipe, depth, cut-outs and enrichment, "
                             "has a test sculpted, looks at it next to the original and redoes it while it is not satisfied; then the final sculpt. Returns a job id.",
                             "What it decided and why is kept in the project (director). Needs the vision model reachable (status.model).", "dirigir con IA, que lo decida el modelo, rehacer"),

@@ -4,6 +4,14 @@ Sculpting studio of the Hoard family. It opens low-poly scenery taken from games
 model for 3D printing: the relief that the game only draws in its textures (cracks, joints between blocks, steps,
 the lines of a column, roof tiles) is carved into the mesh, at the size you are going to print and in millimetres.
 
+- **Remodelling** (the main way of working): the game model is taken apart into its pieces and each one is built
+  again in Blender with modelling operations, in clean quads, using the original only as the reference for sizes and
+  positions. Hipped roofs get real half-round tiles, hip ridges, a concave slope and upturned eaves; storeys get
+  posts, beams and a recessed panel, lattice or door in every bay; turned pieces (spires, columns) are lathed from
+  the piece's own profile; slabs and plinths follow their profile with bevels; stairs get real steps; anything else
+  is kept as the original piece cleaned into quads. Pieces of the same shape are one type: you choose what each type
+  is and its parameters (tiles per side, bays, bars, segments). The result is a `.blend` with one object per piece
+  and the bevels as live modifiers, and an OBJ in quads. The 3D view and the pictures draw the mesh's own edges.
 - **Library**: point it at the folders where you keep game models. It lists every OBJ (with its MTL and textures),
   Collada (`.dae`), GLB and glTF it finds, also inside zips, grouped by folder. A scene that comes in several formats
   appears once, in the richest one.
@@ -29,7 +37,7 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   says what it is, chooses recipe, depth, cut-outs and added detail, has a test sculpted, looks at it next to the
   original from several sides and close up, and redoes it while it is not satisfied; then it makes the final sculpt.
   You can tell it in words what you want. What it decided and why stays with the project.
-- **Sculpting**: the mesh is refined only where the relief needs it, down to the finest detail you ask for (0.2 to
+- **Sculpting** (the other way: displacement on a dense triangle mesh): the mesh is refined only where the relief needs it, down to the finest detail you ask for (0.2 to
   0.3 mm for filament, 0.1 mm for resin), inside a triangle budget; when the detail does not fit, it coarsens evenly
   and says so. Neighbouring triangles always agree on their cuts, so the surface never opens.
 - **Ground block**: the faces that look up with nothing below them are closed into a solid block down to a base, so

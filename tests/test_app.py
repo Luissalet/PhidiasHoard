@@ -155,3 +155,48 @@ def test_answers_with_thinking_or_fences_are_read():
 
     assert extract_json('<think>hmm {"a": 0}</think>\nSure:\n```json\n{"verdict": "ok"}\n```') == {"verdict": "ok"}
     assert extract_json('text {"a": {"b": 1}} trailing') == {"a": {"b": 1}}
+
+
+def test_remodel_rebuilds_the_pieces_in_quads(client, tmp_path):
+    from phidias_hoard.engine import finish
+    from phidias_hoard.remodel import build
+
+    if not (finish.find_blender("") or build.has_bpy()):
+        pytest.skip("needs Blender")
+    # a little pagoda: plinth, body, roof
+    obj, base = [], 1
+
+    def ring_box(levels):
+        nonlocal base
+        lines, rings = [], []
+        for z, s in levels:
+            rings.append(base + len(rings) * 4)
+            lines += [f"v {-s} {z} {s}", f"v {s} {z} {s}", f"v {s} {z} {-s}", f"v {-s} {z} {-s}"]
+        for a, b in zip(rings, rings[1:]):
+            for i in range(4):
+                j = (i + 1) % 4
+                lines += [f"f {a + i} {a + j} {b + j}", f"f {a + i} {b + j} {b + i}"]
+        base += len(rings) * 4
+        return lines
+
+    obj += ring_box([(0, 10), (1, 9)]) + ring_box([(1, 6), (7, 6)]) + ring_box([(7, 11), (8, 11), (12, 5)])
+    (tmp_path / "lib" / "pagoda.obj").write_text("\n".join(obj) + "\n")
+    p = call(client, "project_create", source=str(tmp_path / "lib" / "pagoda.obj"))
+    pid = p["id"]
+    plan = call(client, "remodel_plan", project_id=pid)
+    assert [t["kind"] for t in plan["types"]] == ["block", "body", "roof"]
+    roof = plan["types"][2]["type"]
+    plan = call(client, "remodel_set", project_id=pid, types={str(roof): {"params": {"tiles": 8, "rows": 4}}, str(plan["types"][1]["type"]): {"params": {"bays_x": 2, "zones": ["lattice"], "door_bay": 0}}})
+    assert plan["types"][2]["params"]["tiles"] == 8 and plan["types"][2]["chosen"]
+    job = call(client, "remodel_start", project_id=pid)
+    done = call(client, "job_status", job_id=job["id"])
+    assert done["state"] == "done", done
+    r = done["result"]
+    assert r["quads"] > 400 and r["ngons"] == 0 and r["tris"] <= 4 * 8 + 4 and r["kinds"] == {"block": 1, "body": 1, "roof": 1}
+    assert client.get(f"/api/projects/{pid}/mesh/remodel.bin").status_code == 200
+    assert client.get(f"/api/projects/{pid}/mesh/remodel_edges.bin").status_code == 200
+    assert len(client.get(f"/api/projects/{pid}/download/remodel.blend").content) > 2000
+    look = client.get(f"/api/projects/{pid}/look.png", params={"result": "remodel", "size": 300})
+    assert look.status_code == 200
+    out = call(client, "result_export", project_id=pid, folder=str(tmp_path / "out"))
+    assert out["result"] == "remodel" and out["paths"][0].endswith("remodelado.blend") and (tmp_path / "out").is_dir()

@@ -109,3 +109,11 @@ img.sheet { width: 100%; border-radius: 8px; border: 1px solid var(--hoard-borde
 .dlog .dchg { font-size: 12px; color: var(--hoard-text-dim); margin-top: 2px; }
 .mat .mwhat { font-size: 11px; color: var(--hoard-accent-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mat .menr { display: grid; grid-template-columns: 1fr 56px 56px; gap: 6px; margin-top: 4px; }
+.piece { padding: 6px 8px; border-radius: 8px; background: var(--hoard-sunken); border: 1px solid var(--hoard-border); display: flex; flex-direction: column; gap: 4px; }
+.piece .phead { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.piece .phead .input { height: 28px; width: 130px; margin-left: auto; font-size: 13px; }
+.piece .pmeta { font-size: 11px; color: var(--hoard-text-dim); }
+.piece .pparams { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.piece .pparams label { display: flex; flex-direction: column; font-size: 11px; color: var(--hoard-text-dim); gap: 2px; }
+.piece .pparams .input { height: 26px; font-size: 12px; }
+.viewbar .check { margin: 0 4px; }

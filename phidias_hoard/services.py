@@ -21,6 +21,8 @@ from .config import Config, Settings
 from . import director
 from .engine import export, finish, meshio, patterns, preview, recipes
 from .llm import ModelClient
+from .remodel import build as remodel_build
+from .remodel import pieces as remodel_pieces
 from .engine import sculpt as sculpting
 from .errors import PhidiasError
 from .hoard_link.tokens import read_or_create_token
@@ -31,7 +33,7 @@ log = logging.getLogger("phidias")
 SKIP_DIRS = {"trabajo", "originales", "herramientas", "node_modules", ".git", "__pycache__", "phidias"}
 PROJECT_SETTINGS = ("size_mm", "min_edge_mm", "tolerance_mm", "max_faces", "ground", "base_mm", "plinth", "plinth_margin_mm",
                     "normal_cutoff_mm", "sheet_mm")
-RESULTS = ("sculpt", "closed")
+RESULTS = ("sculpt", "closed", "remodel")
 
 
 class Services:
@@ -315,6 +317,94 @@ class Services:
         return meshio.texture_png(arr)
 
     # ------------------------------------------------------------------ jobs
+    # ------------------------------------------------------------------ remodel
+    def remodel_plan(self, pid: str, full: bool = False) -> dict[str, Any]:
+        """The model taken apart into pieces, each with what it will be built as (saved choices, else a guess)."""
+        project = self.store.get(pid)
+        scene = self.scene(pid)
+        st = self._settings_of(project)
+        scale = st.size_mm / max(float(scene.extents.max()), 1e-9)
+        dropped = {n for n, m in project["materials"].items() if m.get("recipe") == "drop"}
+        parts = remodel_pieces.split(scene, scale, dropped)
+        saved = (project.get("remodel") or {}).get("types", {})
+        types: dict[str, dict[str, Any]] = {}
+        for p in parts:
+            key = str(p["type"])
+            choice = saved.get(key)
+            if choice and choice.get("kind") in remodel_pieces.KINDS:
+                p["kind"], p["params"] = choice["kind"], dict(choice.get("params") or {})
+            else:
+                p["kind"], p["params"] = remodel_pieces.guess(p, st.size_mm)
+            p["name"] = f'{p["id"]:03d} {p["kind"]}'
+            t = types.setdefault(key, {"type": p["type"], "kind": p["kind"], "params": p["params"], "count": 0, "pieces": [],
+                                       "size_mm": p["size"], "triangles": p["triangles_count"], "levels": len(p["profile"]),
+                                       "materials": p["materials"], "what": (choice or {}).get("what", ""),
+                                       "chosen": bool(choice)})
+            t["count"] += 1
+            t["pieces"].append(p["id"])
+        out: dict[str, Any] = {"project_id": pid, "pieces": len(parts), "types": list(types.values()), "kinds": list(remodel_pieces.KINDS)}
+        if full:
+            out["_parts"] = parts
+        return out
+
+    def remodel_set(self, pid: str, changes: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        project = self.store.get(pid)
+        plan = self.remodel_plan(pid)
+        known = {str(t["type"]): t for t in plan["types"]}
+        saved = project.setdefault("remodel", {}).setdefault("types", {})
+        for key, change in changes.items():
+            if key not in known:
+                raise PhidiasError("not_found", f"No hay ningún tipo de pieza {key}.", "Tipos: " + ", ".join(known))
+            cur = saved.get(key) or {"kind": known[key]["kind"], "params": dict(known[key]["params"])}
+            kind = change.get("kind")
+            if kind is not None:
+                if kind not in remodel_pieces.KINDS:
+                    raise PhidiasError("invalid", "kind debe ser " + ", ".join(remodel_pieces.KINDS) + ".")
+                if kind != cur["kind"]:
+                    cur = {"kind": kind, "params": {}}
+            if isinstance(change.get("params"), dict):
+                cur["params"] = {**cur.get("params", {}), **{k: v for k, v in change["params"].items() if v is not None}}
+            if isinstance(change.get("what"), str):
+                cur["what"] = change["what"][:160]
+            saved[key] = cur
+        self.store.save(project)
+        return self.remodel_plan(pid)
+
+    def start_remodel(self, pid: str) -> dict[str, Any]:
+        if not (finish.find_blender(self.settings["blender"]) or remodel_build.has_bpy()):
+            raise PhidiasError("unavailable", "No encuentro Blender en este equipo.", "Instálalo o indica su ruta en Ajustes.")
+        return self._enqueue("remodel", pid)
+
+    def _do_remodel(self, pid: str, say) -> dict[str, Any]:
+        t0 = time.time()
+        say("separando piezas", 0.05)
+        plan = self.remodel_plan(pid, full=True)
+        parts = plan.pop("_parts")
+        pdir = self.store.dir(pid)
+        say("Blender: construyendo las piezas", 0.2)
+        try:
+            stats = remodel_build.run({"pieces": parts}, pdir / "remodel", finish.find_blender(self.settings["blender"]))
+        except Exception as exc:
+            raise PhidiasError("failed", str(exc)) from exc
+        say("vista", 0.85)
+        P, F, E = preview.read_polygons(pdir / "remodel" / "remodel.obj")
+        np.save(pdir / "remodel_P.npy", P.astype(np.float32)); np.save(pdir / "remodel_F.npy", F); np.save(pdir / "remodel_E.npy", E)
+        (pdir / "remodel.bin").write_bytes(export.viewer_buffers(P, F))
+        (pdir / "remodel_edges.bin").write_bytes(np.array([len(E)], "<u4").tobytes() + P[E].astype("<f4").tobytes())
+        preview.render(P, F, size=640, edges=E).save(pdir / "remodel.png")
+        total = {k: int(sum(s[k] for s in stats["pieces"])) for k in ("verts", "quads", "tris", "ngons")}
+        kinds: dict[str, int] = {}
+        for p in parts:
+            kinds[p["kind"]] = kinds.get(p["kind"], 0) + 1
+        info = {**total, "objects": len(stats["pieces"]), "pieces": len(parts), "kinds": kinds, "triangles_total": int(len(F)),
+                "open_edges": None, "size_mm": [round(float(v), 2) for v in (P.max(0) - P.min(0))] if len(P) else [0, 0, 0],
+                "file_bytes": (pdir / "remodel" / "remodel.obj").stat().st_size, "seconds": round(time.time() - t0, 1), "at": time.time(),
+                "log": stats["log"]}
+        project = self.store.get(pid)
+        project.setdefault("results", {})["remodel"] = info
+        self.store.save(project)
+        return info
+
     def start_direct(self, pid: str, rounds: int = 0, wish: str = "") -> dict[str, Any]:
         status = self.llm.status()
         if not status.get("available"):
@@ -382,6 +472,8 @@ class Services:
         try:
             if job["kind"] == "sculpt":
                 job["result"] = self._do_sculpt(job["project_id"], say)
+            elif job["kind"] == "remodel":
+                job["result"] = self._do_remodel(job["project_id"], say)
             elif job["kind"] == "direct":
                 job["result"] = self._do_direct(job["project_id"], say, job["params"])
             else:
@@ -481,13 +573,16 @@ class Services:
         return np.load(pdir / f"{which}_P.npy").astype(np.float64), np.load(pdir / f"{which}_F.npy")
 
     def look(self, pid: str, which: str = "sculpt", view: str = "iso", yaw: Optional[float] = None, pitch: Optional[float] = None,
-             size: int = 900, region: Optional[list[float]] = None, compare: bool = False) -> bytes:
+             size: int = 900, region: Optional[list[float]] = None, compare: bool = False, wire: bool = True) -> bytes:
         y, p = preview.VIEWS.get(view, preview.VIEWS["iso"])
         y = y if yaw is None else yaw
         p = p if pitch is None else pitch
         size = int(min(max(size, 200), 2000))
         P, F = self.mesh(pid, which)
-        img = preview.render(P, F, yaw=y, pitch=p, size=size, region=region)
+        edges = None
+        if which == "remodel" and wire and (self.store.dir(pid) / "remodel_E.npy").is_file():
+            edges = np.load(self.store.dir(pid) / "remodel_E.npy")
+        img = preview.render(P, F, yaw=y, pitch=p, size=size, region=region, edges=edges)
         if compare and which != "before":
             BP, BF = self.mesh(pid, "before")
             if region is None:                             # the result sits on its base: line the original up with it
@@ -495,10 +590,33 @@ class Services:
             img = preview.side_by_side([preview.render(BP, BF, yaw=y, pitch=p, size=size, region=region), img], ["original", "esculpido"])
         return preview.png(img)
 
+    def _export_remodel(self, project: dict[str, Any], folder: str) -> dict[str, Any]:
+        src = self.store.dir(project["id"]) / "remodel"
+        if not (src / "remodel.obj").is_file():
+            raise PhidiasError("not_found", "Todavía no hay remodelado.", "Lanza remodel_start y espera a que acabe.")
+        dest = Path(folder).expanduser() if folder else (Path(self.settings["export_dir"]) if self.settings["export_dir"]
+                                                         else Path(project["source"]["path"]).parent / "Phidias")
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            dest = self.config.data_dir / "exports"
+            dest.mkdir(parents=True, exist_ok=True)
+        safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in project["name"]).strip() or project["id"]
+        size = int(round(float(project["settings"].get("size_mm", 0))))
+        paths = []
+        for ext in ("blend", "obj"):
+            out = dest / f"{safe} {size}mm remodelado.{ext}"
+            shutil.copyfile(src / f"remodel.{ext}", out)
+            paths.append(str(out))
+        r = project["results"]["remodel"]
+        return {"path": paths[0], "paths": paths, "result": "remodel", "quads": r["quads"], "tris": r["tris"], "ngons": r["ngons"]}
+
     def export_result(self, pid: str, which: str = "", folder: str = "") -> dict[str, Any]:
         project = self.store.get(pid)
         results = project.get("results", {})
-        which = which or ("closed" if "closed" in results else "sculpt")
+        which = which or ("remodel" if "remodel" in results else ("closed" if "closed" in results else "sculpt"))
+        if which == "remodel":
+            return self._export_remodel(project, folder)
         src = self.store.dir(pid) / f"{which}.stl"
         if which not in RESULTS or not src.is_file():
             raise PhidiasError("not_found", "Ese resultado todavía no existe.", "Lanza sculpt_start y espera a que acabe.")

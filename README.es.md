@@ -5,6 +5,15 @@ alta resolución para imprimir en 3D: el relieve que el juego solo dibuja en sus
 bloques, escalones, las líneas de una columna, tejas) se talla en la malla, al tamaño al que vas a imprimir y en
 milímetros.
 
+- **Remodelado** (la forma principal de trabajar): el modelo del juego se despieza y cada pieza se construye de nuevo
+  en Blender con operaciones de modelado, en quads limpios, usando el original solo como referencia de medidas y
+  posiciones. Los tejados a cuatro aguas llevan tejas de medio punto de verdad, limatesas, faldón cóncavo y aleros
+  levantados; los cuerpos llevan pilares, vigas y un panel rehundido, celosía o puerta en cada vano; las piezas
+  torneadas (agujas, columnas) se tornean con el perfil de la propia pieza; losas y peanas siguen su perfil con
+  biseles; las escaleras llevan peldaños; lo demás se conserva como la pieza original limpiada a quads. Las piezas
+  con la misma forma son un tipo: eliges qué es cada tipo y sus parámetros (tejas por lado, vanos, barrotes,
+  segmentos). El resultado es un `.blend` con un objeto por pieza y los biseles como modificadores vivos, y un OBJ
+  en quads. La vista 3D y las imágenes dibujan las aristas de la malla.
 - **Biblioteca**: dile en qué carpetas guardas los modelos. Lista cada OBJ (con su MTL y texturas), Collada (`.dae`),
   GLB y glTF que encuentra, también dentro de zips, agrupados por carpeta. Un escenario que viene en varios formatos
   aparece una vez, en el más completo.
@@ -30,7 +39,7 @@ milímetros.
   material y dice qué es, elige receta, profundidad, recortes y detalle añadido, manda esculpir una prueba, la mira
   junto al original desde varios lados y de cerca, y la rehace mientras no le convenza; después hace el esculpido
   final. Puedes decirle con palabras lo que quieres. Lo que decidió y por qué queda guardado en el proyecto.
-- **Esculpido**: la malla se refina solo donde el relieve lo pide, hasta el detalle más fino que le indiques (0,2 a
+- **Esculpido** (la otra forma: desplazamiento sobre una malla densa de triángulos): la malla se refina solo donde el relieve lo pide, hasta el detalle más fino que le indiques (0,2 a
   0,3 mm para filamento, 0,1 mm para resina), dentro de un presupuesto de triángulos; si el detalle no cabe, se
   reparte por igual y te lo dice. Los triángulos vecinos siempre se cortan de acuerdo, así que la superficie nunca
   se abre.

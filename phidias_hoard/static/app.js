@@ -7,7 +7,9 @@ const call = (name, args = {}) => api('/api/ui/call', { method: 'POST', body: { 
 const state = { project: null, which: 'before', library: null, projects: [], poll: null, loaded: '' };
 const RECIPES = [['auto', 'Automática'], ['normal', 'Mapa de normales'], ['relief', 'Relieve'], ['lines', 'Solo líneas'], ['steps', 'Escalones'], ['flat', 'Liso'], ['drop', 'Quitar']];
 const PATTERNS = [['', 'Sin detalle añadido'], ['rock', 'Roca'], ['cracks', 'Grietas'], ['cobble', 'Adoquines'], ['bricks', 'Ladrillo'], ['planks', 'Tablas'], ['tiles', 'Tejas'], ['bark', 'Corteza'], ['ripples', 'Ondas'], ['flutes', 'Estrías de columna']];
-const WHY = { before: 'Original', sculpt: 'Esculpido', closed: 'Sólido cerrado' };
+const WHY = { before: 'Original', remodel: 'Remodelado', sculpt: 'Esculpido', closed: 'Sólido cerrado' };
+const KINDS = [['roof', 'Tejado'], ['body', 'Cuerpo con pilares'], ['block', 'Bloque'], ['lathe', 'Torneado'], ['stairs', 'Escalera'], ['keep', 'Original limpio'], ['drop', 'Quitar']];
+const PARAMS = { roof: [['tiles', 'Tejas por lado', 14], ['rows', 'Tramos', 6], ['corner_lift', 'Alero levantado', 0.35], ['concave', 'Curva', 1.45]], body: [['bays_x', 'Vanos frente', 3], ['bays_y', 'Vanos lado', 3], ['bars', 'Barrotes', 5]], block: [['bevel', 'Bisel (mm)', 0.25]], lathe: [['segments', 'Segmentos', 24]], stairs: [['steps', 'Peldaños', 5]], keep: [['bevel', 'Bisel (mm)', 0.15]], drop: [] };
 
 // ------------------------------------------------------------------ 3-D view
 const view = (() => {
@@ -25,6 +27,8 @@ const view = (() => {
   scene.add(key);
   const material = new THREE.MeshStandardMaterial({ color: 0xd9c8ad, roughness: 0.82, metalness: 0.0, side: THREE.DoubleSide });
   let mesh = null;
+  let lines = null;
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x2a2520, transparent: true, opacity: 0.75 });
   let dirty = true;
   function resize() {
     const w = host.clientWidth, h = host.clientHeight;
@@ -67,8 +71,21 @@ const view = (() => {
     dirty = true;
     return { points: head[0], triangles: head[1] };
   }
-  function clear() { if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh = null; dirty = true; } }
-  return { show, clear, resize };
+  function setEdges(buffer) {
+    if (lines) { scene.remove(lines); lines.geometry.dispose(); lines = null; }
+    if (buffer) {
+      const count = new Uint32Array(buffer, 0, 1)[0];
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(buffer, 4, count * 6), 3));
+      lines = new THREE.LineSegments(geo, lineMat);
+      scene.add(lines);
+    }
+    dirty = true;
+  }
+  function showEdges(on) { if (lines) { lines.visible = on; dirty = true; } }
+  function clear() { setEdges(null); if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh = null; dirty = true; } }
+  material.polygonOffset = true; material.polygonOffsetFactor = 1; material.polygonOffsetUnits = 1;
+  return { show, clear, resize, setEdges, showEdges };
 })();
 
 async function loadMesh(keepCamera = false) {
@@ -80,6 +97,12 @@ async function loadMesh(keepCamera = false) {
     const res = await fetch(`/api/projects/${p.id}/mesh/${state.which}.bin?t=${Date.now()}`);
     if (!res.ok) throw new Error('La vista 3D de este resultado no está disponible (malla demasiado grande): descarga el STL.');
     const info = view.show(await res.arrayBuffer(), keepCamera && state.loaded.startsWith(p.id + '/'));
+    view.setEdges(null);
+    $('wire-box').hidden = state.which !== 'remodel';
+    if (state.which === 'remodel') {
+      const er = await fetch(`/api/projects/${p.id}/mesh/remodel_edges.bin?t=${Date.now()}`);
+      if (er.ok) { view.setEdges(await er.arrayBuffer()); view.showEdges($('wire').checked); }
+    }
     state.loaded = key;
     $('view-info').textContent = `${WHY[state.which]} · ${nf.format(info.triangles)} triángulos en la vista`;
   } catch (err) { fail(err); } finally { $('loading').hidden = true; }
@@ -171,8 +194,8 @@ function setProject(p, keepView = false) {
   $('project-title').textContent = p ? p.name : '';
   if (!p) { view.clear(); $('view-info').textContent = ''; $('resultbar').replaceChildren(); refreshButtons(); return; }
   const r = p.results || {};
-  if (changed && !keepView) state.which = r.closed ? 'closed' : (r.sculpt ? 'sculpt' : 'before');
-  if (!r[state.which] && state.which !== 'before') state.which = r.sculpt ? 'sculpt' : 'before';
+  if (changed && !keepView) state.which = r.remodel ? 'remodel' : (r.closed ? 'closed' : (r.sculpt ? 'sculpt' : 'before'));
+  if (!r[state.which] && state.which !== 'before') state.which = r.remodel ? 'remodel' : (r.sculpt ? 'sculpt' : 'before');
   const s = p.settings;
   $('s-size').value = s.size_mm; $('s-edge').value = s.min_edge_mm; $('s-ground').checked = !!s.ground; $('s-base').value = s.base_mm;
   $('s-plinth').value = s.plinth || 'none';
@@ -180,6 +203,7 @@ function setProject(p, keepView = false) {
   if (![...faces.options].some((o) => +o.value === +s.max_faces)) faces.append(el('option', { value: s.max_faces, text: `${nf.format(s.max_faces)}` }));
   faces.value = s.max_faces;
   drawMaterials();
+  drawPieces();
   drawDirector();
   drawResult();
   refreshButtons();
@@ -198,10 +222,15 @@ function refreshButtons() {
   }
   $('btn-sculpt').disabled = !p || busy;
   $('btn-direct').disabled = !p || busy;
+  $('btn-remodel').disabled = !p || busy;
+  $('btn-remodel').textContent = r.remodel ? 'Volver a remodelar' : 'Remodelar';
+  const rm = state.which === 'remodel';
+  $('btn-download').textContent = rm ? 'Descargar .blend' : 'Descargar STL';
+  $('btn-download-obj').hidden = !rm;
   $('btn-sculpt').textContent = r.sculpt ? 'Volver a esculpir' : 'Esculpir';
   $('btn-close').disabled = !p || busy || !r.sculpt;
-  $('btn-download').disabled = !p || !r.sculpt;
-  $('btn-export').disabled = !p || !r.sculpt;
+  $('btn-download').disabled = !p || !(rm ? r.remodel : r.sculpt);
+  $('btn-export').disabled = !p || !(r.sculpt || r.remodel);
 }
 
 function drawResult() {
@@ -210,6 +239,14 @@ function drawResult() {
   if (!p) return;
   const src = p.source;
   bar.append(el('span', {}, 'Origen: ', el('b', { text: `${nf.format(src.triangles)} triángulos` }), ` · ${src.format.toUpperCase()}`));
+  if (state.which === 'remodel' && (p.results || {}).remodel) {
+    const m = p.results.remodel;
+    bar.append(el('span', {}, 'Remodelado: ', el('b', { text: `${nf.format(m.quads)} quads` }), ` · ${nf.format(m.tris)} triángulos · ${nf.format(m.ngons)} n-gons · ${nf.format(m.verts)} vértices`));
+    bar.append(el('span', { text: `${m.objects} objetos de ${m.pieces} piezas` }));
+    bar.append(el('span', {}, 'Medidas: ', el('b', { text: `${m.size_mm.map((v) => v.toFixed(1)).join(' × ')} mm` })));
+    bar.append(el('span', { text: `${m.seconds} s` }));
+    return;
+  }
   const r = (p.results || {})[state.which === 'before' ? 'sculpt' : state.which];
   if (!r) { bar.append(el('span', { text: 'Sin esculpir todavía.' })); return; }
   bar.append(el('span', {}, `${WHY[state.which === 'before' ? 'sculpt' : state.which]}: `, el('b', { text: `${nf.format(r.triangles_total)} triángulos` })));
@@ -218,6 +255,27 @@ function drawResult() {
     `Detalle: ${r.edge_mm} mm${r.edge_mm > r.edge_asked_mm * 1.05 ? ` (pedías ${r.edge_asked_mm}; sube el presupuesto de triángulos)` : ''}`));
   bar.append(el('span', { class: r.open_edges ? 'warn' : 'ok', text: r.open_edges ? `${nf.format(r.open_edges)} bordes abiertos (ciérralo con «Cerrar malla» si tu laminador se queja)` : 'Malla cerrada' }));
   bar.append(el('span', { text: `${human(r.file_bytes)} · ${r.seconds} s` }));
+}
+
+async function drawPieces() {
+  const p = state.project, list = $('piece-list');
+  let plan;
+  try { plan = await call('remodel_plan', { project_id: p.id }); } catch (err) { list.replaceChildren(el('div', { class: 'hint', text: err.message || 'No se pudo despiezar.' })); return; }
+  if (!state.project || state.project.id !== p.id) return;
+  $('piece-count').textContent = `${plan.pieces} piezas, ${plan.types.length} tipos`;
+  list.replaceChildren();
+  const save = async (type, change) => { try { await call('remodel_set', { project_id: p.id, types: { [type]: change } }); drawPieces(); } catch (err) { fail(err); } };
+  for (const t of plan.types) {
+    const kind = el('select', { class: 'input', 'aria-label': `Qué es la pieza ${t.type}`, onchange: (ev) => save(t.type, { kind: ev.target.value }) },
+      KINDS.map(([v, txt]) => el('option', { value: v, text: txt, selected: v === t.kind })));
+    const params = el('div', { class: 'pparams' }, (PARAMS[t.kind] || []).map(([key, label, dflt]) => el('label', {}, label,
+      el('input', { class: 'input', type: 'number', step: 'any', value: t.params[key] ?? dflt, onchange: (ev) => save(t.type, { params: { [key]: +ev.target.value } }) }))));
+    const mats = Object.keys(t.materials).slice(0, 3).join(', ');
+    list.append(el('div', { class: 'piece' },
+      el('div', { class: 'phead' }, el('b', { text: `Tipo ${t.type}` }), el('span', { text: `× ${t.count}` }), kind),
+      el('div', { class: 'pmeta', text: `${t.size_mm.map((v) => v.toFixed(1)).join(' × ')} mm · ${t.triangles} triángulos · ${mats}${t.what ? ` · ${t.what}` : ''}` }),
+      params));
+  }
 }
 
 function drawDirector() {
@@ -326,15 +384,15 @@ function watchJob(id) {
   const tick = async () => {
     let j;
     try { j = await call('job_status', { job_id: id }); } catch (err) { clearInterval(state.poll); state.poll = null; $('job').hidden = true; refreshButtons(); return; }
-    $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : (j.kind === 'direct' ? 'Dirigiendo' : 'Esculpiendo')} · ${j.stage}`;
+    $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : (j.kind === 'direct' ? 'Dirigiendo' : (j.kind === 'remodel' ? 'Remodelando' : 'Esculpiendo'))} · ${j.stage}`;
     $('job-fill').style.width = `${Math.round(j.progress * 100)}%`;
     if (j.state === 'done' || j.state === 'error') {
       clearInterval(state.poll); state.poll = null; $('job').hidden = true;
       if (j.state === 'error') toast(j.error, 'err', 12000);
-      else toast(j.kind === 'close' ? 'Sólido cerrado listo.' : 'Esculpido listo.', 'ok');
+      else toast(j.kind === 'close' ? 'Sólido cerrado listo.' : (j.kind === 'remodel' ? 'Remodelado listo.' : 'Esculpido listo.'), 'ok');
       if (state.project && state.project.id === j.project_id) {
         const p = await call('project_get', { project_id: j.project_id });
-        if (j.state === 'done') state.which = j.kind === 'close' ? 'closed' : 'sculpt';
+        if (j.state === 'done') state.which = j.kind === 'close' ? 'closed' : (j.kind === 'remodel' ? 'remodel' : 'sculpt');
         setProject(p, true);
       }
       loadProjects();
@@ -388,14 +446,18 @@ for (const id of ['s-size', 's-edge', 's-faces', 's-ground', 's-base', 's-plinth
 for (const b of $('view-seg').children) b.addEventListener('click', () => { state.which = b.dataset.which; refreshButtons(); drawResult(); loadMesh(true); });
 $('btn-sculpt').addEventListener('click', () => startJob('sculpt_start'));
 $('btn-direct').addEventListener('click', startDirect);
+$('btn-remodel').addEventListener('click', () => startJob('remodel_start'));
+$('wire').addEventListener('change', (ev) => view.showEdges(ev.target.checked));
+$('btn-download-obj').addEventListener('click', () => { window.location.href = `/api/projects/${state.project.id}/download/remodel.obj`; });
 $('btn-close').addEventListener('click', () => startJob('close_start'));
 $('btn-download').addEventListener('click', () => {
+  if (state.which === 'remodel') { window.location.href = `/api/projects/${state.project.id}/download/remodel.blend`; return; }
   const which = state.which === 'closed' ? 'closed' : 'sculpt';
   window.location.href = `/api/projects/${state.project.id}/download/${which}.stl`;
 });
 $('btn-export').addEventListener('click', async () => {
   try {
-    const r = await call('result_export', { project_id: state.project.id, result: state.which === 'closed' ? 'closed' : 'sculpt' });
+    const r = await call('result_export', { project_id: state.project.id, result: state.which === 'remodel' ? 'remodel' : (state.which === 'closed' ? 'closed' : 'sculpt') });
     toast(`Guardado en ${r.path}`, 'ok', 9000);
   } catch (err) { fail(err); }
 });
