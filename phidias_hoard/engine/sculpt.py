@@ -186,15 +186,7 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
         return want
 
     say("refinando", 0.1)
-    # the triangle budget decides the finest edge: asking for more detail than fits coarsens it evenly instead of
-    # stopping half way and leaving some walls sculpted and others not
-    a0, b0, c0 = P[F[:, 0]], P[F[:, 1]], P[F[:, 2]]
-    area = 0.5 * np.linalg.norm(np.cross(b0 - a0, c0 - a0), axis=1)
-    wanted_area = float(area[needs(F, UV, np.arange(len(F), dtype=np.int64))].sum())
-    edge = settings.min_edge_mm
-    room = max(settings.max_faces - len(F), 1000)
-    if wanted_area / (0.14 * edge * edge) > room:
-        edge = float(np.sqrt(wanted_area / (0.14 * room)))
+    edge = settings.min_edge_mm                           # the budget is shared out inside refine, longest edges first
     P, F, UV, parent, info = refine(P, F, UV, needs, edge, max_faces=settings.max_faces,
                                     progress=lambda i, n: say("refinando", min(0.1 + 0.05 * i, 0.7)))
     M = M0[parent]
@@ -284,6 +276,12 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
             ground = np.concatenate([ground, np.zeros(len(back_tris), bool)])
             sheets = int(sheet.sum())
     say("esculpido", 0.85)
+    if info["stopped"] == "budget" and len(F):               # what the budget really reached: the longest edge left to cut
+        want = needs(F, UV, parent)
+        if want.any():
+            fw = F[want]
+            lengths = np.concatenate([np.linalg.norm(P[fw[:, k]] - P[fw[:, (k + 1) % 3]], axis=1) for k in range(3)])
+            edge = max(edge, float(np.percentile(lengths, 90)))
     info.update({"edge_mm": round(edge, 3), "edge_asked_mm": settings.min_edge_mm, "triangles": int(len(F)), "points": int(len(P)), "scale_mm_per_unit": scale,
                  "size_mm": [round(float(v), 2) for v in (P.max(0) - P.min(0))] if len(P) else [0, 0, 0],
                  "ground_triangles": int(ground.sum()), "sheet_triangles": sheets, "stair_triangles": stair_faces,
