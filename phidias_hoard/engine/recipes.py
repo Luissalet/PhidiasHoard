@@ -46,7 +46,7 @@ def guess(mat: Material, depth_mm: float) -> dict[str, Any]:
     elif mat.albedo is None or info["contrast"] < 0.012:
         recipe, why = "flat", "color liso"
     elif mat.atlas:
-        recipe, why = "flat", "atlas horneado sin normales"
+        recipe, why = "relief", "dibujo del atlas horneado"
     else:
         recipe, why = "relief", "dibujo de la textura"
     cutout = recipe != "drop" and not mat.atlas and 0.02 < info["transparent"] < 0.98
@@ -76,7 +76,7 @@ def sheet(mat: Material, recipe: str, invert: bool = False, smooth: float = 0.0,
         h = np.tile(saw[None, :], (256, 1)) if axis == "u" else np.tile(saw[::-1, None], (1, 256))
         h = h.astype(np.float32)
     else:
-        h = heights.height_map(mat.albedo, mat.normal, recipe, invert=invert, smooth=smooth)
+        h = heights.height_map(mat.albedo, mat.normal, recipe, invert=invert, smooth=smooth, atlas=mat.atlas)
     grey = ((h * 0.5 + 0.5) * 255).astype(np.uint8)
     gap = np.full((side, 6, 3), 24, np.uint8)
     return np.concatenate([fit(mat.albedo), gap, fit(mat.normal), gap, fit(grey)], axis=1)

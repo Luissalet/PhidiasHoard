@@ -1,0 +1,59 @@
+# Phidias's Hoard — what it can and cannot do
+
+App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (16 tools; `material_look` and
+`model_look` return MCP images). Connector preset: its own `faustus-plugin.json`.
+
+## Can
+
+- List the game models in the library folders (`library_scan`: OBJ, Collada, GLB, glTF, loose or inside zips; one
+  entry per scene, richest format first; `query`, `group`, `limit`, `offset`; `groups` counts per top folder).
+- Open a model as a project (`project_create`): geometry welded and turned Z up, materials with their pictures, a
+  recipe guessed per material (shadow planes, flames and glows removed; water and glass flat; normal map when there is
+  one; steps for stair textures; relief for everything else; cut-out for textures with see-through parts).
+  - OBJ: MTL found even when `mtllib` names a file that is not there; texture paths with backslashes or in subfolders;
+    materials named after their picture.
+  - Collada: scene transforms, `triangles`/`polylist`/`polygons`, effect → sampler → surface → image chains, Y or Z up.
+  - glTF/GLB: node transforms, the UV set each texture names (baked scenes keep the atlas in `TEXCOORD_1`/`_2`), base
+    colour and normal pictures embedded or beside the file.
+  - Baked atlases are recognised (a texture on a secondary UV set, or a big picture mostly empty with every UV inside
+    it) and never read as tiling textures.
+- Show a material (`material_look`): texture, normal map and the height map a recipe would carve.
+- Recipes (`material_set`; `"*"` = every material): `normal`, `relief`, `lines`, `steps`, `flat`, `drop`, `auto`;
+  `depth_mm`, `invert`, `smooth`, `cutout`, `steps` (edges per tile, 0 = counted from the texture).
+- Print settings (`project_set`): `size_mm` (longest side), `min_edge_mm`, `tolerance_mm`, `max_faces`, `ground`,
+  `base_mm`, `plinth` (none, rect, round), `plinth_margin_mm`, `normal_cutoff_mm`, `sheet_mm`.
+- Sculpt in the background (`sculpt_start`, `job_status`): adaptive refinement that never opens the mesh, triangle
+  budget shared evenly (longest edges first), relief from height maps or from normal maps integrated on the mesh,
+  stairs, cut-outs with thickness, ground block and plinth. Result: STL in millimetres, a mesh for the 3D view, a
+  picture, measures, triangle counts and open-edge count.
+- Fuse the sculpt into one watertight solid with Blender (`close_start`): thickness for loose sheets, voxel remesh,
+  open edges counted afterwards (`watertight`).
+- Look at any result (`model_look`): `before`, `sculpt` or `closed`; named views or any yaw/pitch; `region`
+  `[x, y, z, radius]` in print millimetres; `compare` puts the original next to it.
+- Export (`result_export`): the STL into a `Phidias` folder next to the source model, or the folder given.
+- Studio UI with the same handlers: library, projects, 3D view of the three results, material list with thumbnails,
+  recipe and depth per material, the picture of each recipe, job progress, download and save buttons, settings.
+
+## Cannot
+
+- Read FBX, `.blend`, `.smd` or engine-native formats (they have to be converted to one of the four formats).
+- Invent relief a texture does not hold: plain colours stay flat; a baked atlas without normal maps gives coarser
+  relief than the original textures would.
+- Turn foliage cards into volumes (they stay sheets with thickness) or rebuild the inside of buildings.
+- Fill enclosed hollow spaces in the watertight solid, or keep detail finer than its voxel size there.
+- Recognise stairs by shape: the steps recipe is chosen by material name or by hand.
+- Split a model into parts for a small printer, add supports or slice.
+- Undo a sculpt: each sculpt replaces the previous result of the project.
+
+## Where things are
+
+- `phidias_hoard/engine/`: `meshio.py` (loaders, atlas detection, zips), `heights.py` (height maps from textures,
+  step patterns, sampling, detail pyramids), `surface.py` (normal maps integrated on the mesh), `refine.py` (adaptive
+  refinement), `sculpt.py` (the pipeline, ground block, sheets, plinth), `recipes.py` (guesses and the material
+  picture), `preview.py` (pictures), `export.py` (STL, PLY, viewer buffers), `finish.py` + `blender_close.py` (the
+  watertight solid).
+- `phidias_hoard/services.py` (library, projects, the job worker), `agent_tools.py` (the catalogue), `api/` (routes),
+  `static/` (the studio), `store.py` (projects on disk).
+- Data: `data/settings.json`, `data/projects/<id>/` (`project.json`, unpacked zip in `src/`, `sculpt.stl`,
+  `closed.stl`, viewer meshes and pictures), `data/mcp-token`.
+- Tests: `tests/test_engine.py`, `tests/test_app.py`.

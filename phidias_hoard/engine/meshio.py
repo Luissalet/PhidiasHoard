@@ -561,15 +561,32 @@ def load_dae(path: Path) -> Scene:
     return _finish(np.concatenate(pos), np.concatenate(uvs), np.concatenate(mats), materials, path.stem, up != "Z_UP")
 
 
+def mark_atlases(scene: Scene) -> Scene:
+    """Baked scenes keep everything in one big picture where each piece has its own island and the rest is empty.
+    Such a picture must not be read as a tiling texture: islands side by side are unrelated."""
+    for i, mat in enumerate(scene.materials):
+        if mat.atlas or mat.albedo is None or max(mat.albedo.shape[:2]) < 1024:
+            continue
+        sel = scene.M == i
+        if not sel.any():
+            continue
+        uv = scene.UV[sel].reshape(-1, 2)
+        inside = float(((uv > -0.01) & (uv < 1.01)).all(axis=1).mean())
+        empty = float((mat.albedo[..., 3] < 128).mean()) if mat.albedo.shape[2] == 4 else 0.0
+        if inside > 0.999 and empty > 0.3:
+            mat.atlas = True
+    return scene
+
+
 def load_model(path: Path) -> Scene:
     path = Path(path)
     ext = path.suffix.lower()
     if ext == ".obj":
-        return load_obj(path)
+        return mark_atlases(load_obj(path))
     if ext in (".glb", ".gltf"):
-        return load_gltf(path)
+        return mark_atlases(load_gltf(path))
     if ext == ".dae":
-        return load_dae(path)
+        return mark_atlases(load_dae(path))
     raise ValueError(f"unsupported model format: {ext}")
 
 

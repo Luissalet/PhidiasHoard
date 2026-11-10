@@ -147,10 +147,7 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
             slopes[i] = (sx, sy, -1.0 if r.invert else 1.0)
             maps.append(None); pyramids.append(surface.SlopeDetail(sx, sy)); depth[i] = r.depth_mm
             continue
-        if mat.atlas and r.recipe == "auto":               # a baked atlas without normals: nothing reliable to carve
-            maps.append(None); pyramids.append(None)
-            continue
-        h = heights.height_map(mat.albedo, mat.normal, r.recipe, invert=r.invert, smooth=r.smooth)
+        h = heights.height_map(mat.albedo, mat.normal, r.recipe, invert=r.invert, smooth=r.smooth, atlas=mat.atlas)
         if float(np.abs(h).max()) < 1e-4:
             maps.append(None); pyramids.append(None)
             continue
@@ -319,11 +316,28 @@ def _offset_solid(P: np.ndarray, G: np.ndarray, offset: np.ndarray, z_flat: Opti
 
 def close_ground(s: Sculpted, base_mm: float) -> tuple[np.ndarray, np.ndarray]:
     """Walls from the outline of the ground down to the base and a bottom under it: with the ground itself, a closed
-    block. Returns extra points and triangles (indices continue after ``s.P``)."""
+    block. The bottom is a fan from one centre point to the outline (flat, so it costs one triangle per outline edge
+    instead of a copy of the whole ground). Returns extra points and triangles (indices continue after ``s.P``)."""
     G = s.F[s.ground]
     if not len(G):
         return np.zeros((0, 3)), np.zeros((0, 3), np.int32)
-    return _offset_solid(s.P, G, np.zeros((0, 3)), z_flat=float(s.P[:, 2].min()) - base_mm)
+    z_base = float(s.P[:, 2].min()) - base_mm
+    a = G[:, [0, 1, 2]].reshape(-1).astype(np.int64)
+    b = G[:, [1, 2, 0]].reshape(-1).astype(np.int64)
+    n = np.int64(len(s.P))
+    lone = ~np.isin(a * n + b, b * n + a)                 # outline: edges whose opposite is not ground
+    a, b = a[lone], b[lone]
+    if not len(a):
+        return np.zeros((0, 3)), np.zeros((0, 3), np.int32)
+    rim = np.unique(np.concatenate([a, b]))
+    remap = np.full(len(s.P), -1, np.int64)
+    remap[rim] = len(s.P) + np.arange(len(rim))
+    pts = s.P[rim].copy()
+    pts[:, 2] = z_base
+    centre = np.array([[pts[:, 0].mean(), pts[:, 1].mean(), z_base]])
+    c = np.full(len(a), len(s.P) + len(rim), np.int64)
+    tris = np.concatenate([np.stack([b, a, remap[a]], 1), np.stack([b, remap[a], remap[b]], 1), np.stack([remap[b], remap[a], c], 1)])
+    return np.concatenate([pts, centre]), tris.astype(np.int32)
 
 
 def plinth(s: Sculpted, kind: str, margin: float, base_mm: float, thickness: float = 2.0) -> tuple[np.ndarray, np.ndarray]:

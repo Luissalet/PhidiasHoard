@@ -91,7 +91,7 @@ async function loadLibrary(refresh = false) {
   const list = $('lib-list');
   list.replaceChildren(el('div', { class: 'hint', text: 'Leyendo las carpetas…' }));
   try {
-    state.library = await call('library_scan', { refresh });
+    state.library = await call('library_scan', { refresh, limit: 400 });
   } catch (err) { fail(err); return; }
   drawLibrary();
 }

@@ -51,6 +51,8 @@ def test_library_lists_models_and_zips(client):
     kinds = sorted((e["format"], bool(e["inner"])) for e in lib["entries"])
     assert kinds == [("obj", False), ("obj", True)]
     assert call(client, "library_scan", query="pack")["count"] == 1
+    assert lib["groups"] == {"Torre": 1, "lib": 1}
+    assert call(client, "library_scan", group="torre", limit=1)["entries"][0]["format"] == "obj"
 
 
 def test_project_from_zip_to_stl(client, tmp_path):

@@ -92,7 +92,7 @@ def refine(P: np.ndarray, F: np.ndarray, UV: np.ndarray, needs: Callable[[np.nda
         if not want.any():
             break
         room = (max_faces - len(F)) // 2                  # a cut edge adds about two triangles
-        if room < 1:
+        if room < max(1, max_faces // 400):                # the last crumbs of the budget are not worth a pass
             info["stopped"] = "budget"
             break
         P, F, UV, parent, cuts = split_once(P, F, UV, parent, want, min_edge, max_cuts=room)

@@ -45,28 +45,52 @@ def _norm(h: np.ndarray, pct: float = 99.5) -> np.ndarray:
     return np.clip(h / scale, -1.0, 1.0).astype(np.float32) if scale > 1e-6 else np.zeros_like(h, np.float32)
 
 
-def lines_map(albedo: np.ndarray, strength: float = 1.0) -> np.ndarray:
+def _local_mean(lum: np.ndarray, atlas_mask: np.ndarray | None) -> tuple[np.ndarray, float]:
+    """The brightness around each pixel and how much the picture varies. On a baked atlas (``atlas_mask`` = the pixels
+    that hold something) the neighbourhood is small and never mixes in the empty space between islands."""
+    side = max(lum.shape)
+    if atlas_mask is None:
+        return ndimage.gaussian_filter(lum, max(1.0, side / 10.0), mode="wrap"), float(lum.std())
+    m = atlas_mask.astype(np.float32)
+    radius = max(2.0, side / 220.0)
+    weight = ndimage.gaussian_filter(m, radius, mode="nearest")
+    local = ndimage.gaussian_filter(lum * m, radius, mode="nearest") / np.maximum(weight, 1e-3)
+    return local, float(lum[atlas_mask].std()) if atlas_mask.any() else 0.0
+
+
+def _atlas_mask(albedo: np.ndarray, atlas: bool) -> np.ndarray | None:
+    if not atlas:
+        return None
+    return albedo[..., 3] >= 128 if albedo.shape[2] == 4 else np.ones(albedo.shape[:2], bool)
+
+
+def lines_map(albedo: np.ndarray, strength: float = 1.0, atlas: bool = False) -> np.ndarray:
     """0 where the surface stays, down to -1 where the texture draws a dark line."""
     lum = luminance(albedo)
-    side = max(lum.shape)
-    radius = max(1.0, side / 10.0)
-    local = ndimage.gaussian_filter(lum, radius, mode="wrap")
-    spread = float(lum.std())
+    mask = _atlas_mask(albedo, atlas)
+    local, spread = _local_mean(lum, mask)
     if spread < 0.012:                                    # a plain colour: nothing drawn
         return np.zeros(lum.shape, np.float32)
     dark = np.clip((local - lum) / (1.6 * spread), 0.0, 1.0)
     dark = np.where(dark < 0.25, 0.0, dark)               # texture noise is not a line
+    if mask is not None:
+        dark = np.where(mask, dark, 0.0)
     return (-np.clip(dark * strength, 0.0, 1.0)).astype(np.float32)
 
 
-def relief_map(albedo: np.ndarray) -> np.ndarray:
+def relief_map(albedo: np.ndarray, atlas: bool = False) -> np.ndarray:
     lum = luminance(albedo)
     side = max(lum.shape)
+    mask = _atlas_mask(albedo, atlas)
     if float(lum.std()) < 0.012:
         return np.zeros(lum.shape, np.float32)
-    broad = ndimage.gaussian_filter(lum, max(1.0, side / 6.0), mode="wrap")
-    soft = ndimage.gaussian_filter(lum, max(0.6, side / 48.0), mode="wrap") - broad
-    return np.clip(0.45 * _norm(soft, 99.0) + lines_map(albedo), -1.0, 1.0).astype(np.float32)
+    if mask is None:
+        broad = ndimage.gaussian_filter(lum, max(1.0, side / 6.0), mode="wrap")
+        soft = ndimage.gaussian_filter(lum, max(0.6, side / 48.0), mode="wrap") - broad
+    else:
+        broad, _ = _local_mean(lum, mask)
+        soft = np.where(mask, ndimage.gaussian_filter(lum, max(0.6, side / 1400.0), mode="nearest") - broad, 0.0)
+    return np.clip(0.45 * _norm(soft, 99.0) + lines_map(albedo, atlas=atlas), -1.0, 1.0).astype(np.float32)
 
 
 def normal_to_height(normal: np.ndarray) -> np.ndarray:
@@ -96,7 +120,7 @@ def has_normal_detail(normal: np.ndarray | None) -> bool:
 
 
 def height_map(albedo: np.ndarray | None, normal: np.ndarray | None, recipe: str = "auto", *, invert: bool = False,
-               smooth: float = 0.0) -> np.ndarray:
+               smooth: float = 0.0, atlas: bool = False) -> np.ndarray:
     """The height map for one material (-1..1, float32). ``smooth`` blurs it (fraction of a texture pixel block)."""
     if recipe == "auto":
         recipe = "normal" if has_normal_detail(normal) else "relief"
@@ -108,7 +132,11 @@ def height_map(albedo: np.ndarray | None, normal: np.ndarray | None, recipe: str
             src = np.clip(ndimage.zoom(normal.astype(np.float32), (f, f, 1), order=1, mode="grid-wrap"), 0, 255)
         h = _norm(normal_to_height(src), 99.7)
     elif recipe in ("lines", "relief", "normal") and albedo is not None:
-        h = _enlarge(lines_map(albedo) if recipe == "lines" else relief_map(albedo))
+        h = lines_map(albedo, atlas=atlas) if recipe == "lines" else relief_map(albedo, atlas=atlas)
+        if atlas:                                         # an atlas is sampled as it is: resizing would blur its islands together
+            h = ndimage.gaussian_filter(h, 0.6, mode="nearest").astype(np.float32)
+        else:
+            h = _enlarge(h)
     else:
         return np.zeros((4, 4), np.float32)
     if smooth > 0:

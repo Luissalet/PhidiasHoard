@@ -45,6 +45,9 @@ class ProjectId(BaseModel):
 class ScanArgs(BaseModel):
     refresh: bool = Field(False, description="Walk the folders again instead of using the last listing.")
     query: str = Field("", max_length=120, description="Only entries whose name, group or path contains this text.")
+    group: str = Field("", max_length=200, description="Only entries of this group (the top folder inside a library folder).")
+    limit: int = Field(80, ge=1, le=400)
+    offset: int = Field(0, ge=0)
 
 
 class CreateArgs(BaseModel):
@@ -112,10 +115,16 @@ class SettingsArgs(BaseModel):
 def _scan(svc: Services, a: ScanArgs) -> dict[str, Any]:
     lib = svc.library(a.refresh)
     entries = lib["entries"]
+    groups: dict[str, int] = {}
+    for e in entries:
+        groups[e["group"]] = groups.get(e["group"], 0) + 1
     if a.query:
         q = a.query.lower()
-        entries = [e for e in entries if q in e["name"].lower() or q in e["group"].lower() or q in e["path"].lower()]
-    return {"dirs": lib["dirs"], "missing": lib["missing"], "count": len(entries), "entries": entries[:400]}
+        entries = [e for e in entries if q in e["name"].lower() or q in e["group"].lower() or q in (e["path"] + "|" + e["inner"]).lower()]
+    if a.group:
+        entries = [e for e in entries if e["group"].lower() == a.group.lower()]
+    page = entries[a.offset: a.offset + a.limit]
+    return {"dirs": lib["dirs"], "missing": lib["missing"], "groups": groups, "count": len(entries), "offset": a.offset, "entries": page}
 
 
 def _summary(p: dict[str, Any]) -> dict[str, Any]:
@@ -150,7 +159,7 @@ TOOLS: list[Tool] = [
     Tool("status", _d("What Phidias has: projects, library folders, whether Blender is available and the jobs running.", synonyms="estado"),
          Empty, ann(read_only=True), lambda s, a: s.status()),
     Tool("library_scan", _d("List the game models found in the library folders (and inside their zips), with the project already made from each.",
-                            synonyms="biblioteca, modelos de juego, dioramas"), ScanArgs, ann(read_only=True), _scan, timeout_s=120),
+                            synonyms="biblioteca, modelos de juego, dioramas"), ScanArgs, ann(read_only=True), _scan, timeout_s=120, capped=False),
     Tool("project_list", _d("List sculpting projects, newest first.", synonyms="proyectos"), Empty, ann(read_only=True),
          lambda s, a: {"projects": [_summary(p) for p in s.store.list()]}),
     Tool("project_create", _d("Open a game model as a project: reads its geometry and materials and guesses a recipe for each material.",
