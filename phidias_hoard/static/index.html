@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es" data-hoard-app="phidias" data-hoard-copilot-position="left">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1a1916">
+  <title>Phidias's Hoard</title>
+  <link rel="icon" href="/icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/hoard-theme.css">
+  <link rel="stylesheet" href="/app.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/three.module.min.js"}}</script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="/icon-192.png" alt="" class="brand-icon">
+      <span class="brand-name">Phidias's Hoard</span>
+    </div>
+    <div class="project-title" id="project-title"></div>
+    <div class="job" id="job" hidden>
+      <span class="job-stage" id="job-stage"></span>
+      <span class="job-bar"><span id="job-fill"></span></span>
+    </div>
+    <button class="btn small" id="btn-settings" title="Carpetas de modelos y opciones de Blender">Ajustes</button>
+  </header>
+
+  <main class="layout">
+    <aside class="side left">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="library" role="tab">Biblioteca</button>
+        <button class="tab" data-tab="projects" role="tab">Proyectos</button>
+      </div>
+      <div class="pane" id="pane-library">
+        <div class="row">
+          <input type="search" id="lib-search" class="input" placeholder="Buscar un escenario" aria-label="Buscar en la biblioteca">
+          <button class="btn small" id="lib-refresh" title="Volver a leer las carpetas">Releer</button>
+        </div>
+        <div id="lib-list" class="list"></div>
+      </div>
+      <div class="pane" id="pane-projects" hidden>
+        <div id="project-list" class="list"></div>
+      </div>
+    </aside>
+
+    <section class="center">
+      <div class="viewbar">
+        <div class="seg" id="view-seg" role="group" aria-label="Qué se ve">
+          <button data-which="before" class="active">Original</button>
+          <button data-which="sculpt" disabled>Esculpido</button>
+          <button data-which="closed" disabled>Sólido cerrado</button>
+        </div>
+        <span class="viewinfo" id="view-info"></span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="btn-sculpt" disabled>Esculpir</button>
+        <button class="btn" id="btn-close" disabled title="Fundir todo en un único sólido estanco con Blender">Cerrar malla</button>
+        <button class="btn" id="btn-download" disabled>Descargar STL</button>
+        <button class="btn" id="btn-export" disabled title="Guardar el STL en una carpeta Phidias junto al modelo de origen">Guardar junto al modelo</button>
+      </div>
+      <div class="viewport" id="viewport">
+        <div class="empty" id="empty">
+          <h1>Elige un escenario de la biblioteca</h1>
+          <p>Phidias lee el modelo del juego con sus texturas, esculpe en la malla el relieve que solo estaba dibujado (grietas, juntas, escalones, estrías de columnas, tejas) y lo deja listo para imprimir.</p>
+        </div>
+        <div class="loading" id="loading" hidden>Cargando la malla…</div>
+      </div>
+      <div class="resultbar" id="resultbar"></div>
+    </section>
+
+    <aside class="side right" id="right" hidden>
+      <section class="card">
+        <h2>Impresión</h2>
+        <label class="field"><span>Lado mayor (mm)</span><input type="number" id="s-size" class="input" min="10" max="2000" step="5"></label>
+        <label class="field"><span>Detalle más fino (mm)</span><input type="number" id="s-edge" class="input" min="0.05" max="5" step="0.05"></label>
+        <label class="field"><span>Presupuesto de triángulos</span>
+          <select id="s-faces" class="input">
+            <option value="1000000">1 millón</option><option value="2000000">2 millones</option><option value="4000000">4 millones</option>
+            <option value="8000000">8 millones</option><option value="16000000">16 millones</option><option value="30000000">30 millones</option>
+          </select></label>
+        <label class="check"><input type="checkbox" id="s-ground"><span>Suelo macizo hasta la base</span></label>
+        <label class="field"><span>Grosor bajo el suelo (mm)</span><input type="number" id="s-base" class="input" min="0" max="100" step="0.5"></label>
+        <label class="field"><span>Peana</span>
+          <select id="s-plinth" class="input"><option value="none">Sin peana</option><option value="rect">Rectangular</option><option value="round">Redonda</option></select></label>
+      </section>
+      <section class="card">
+        <h2>Materiales <small id="mat-count"></small></h2>
+        <div class="bulk">
+          <select id="bulk-recipe" class="input" aria-label="Receta para todos">
+            <option value="">Receta para todos…</option><option value="auto">Automática</option><option value="normal">Mapa de normales</option>
+            <option value="relief">Relieve</option><option value="lines">Solo líneas</option><option value="steps">Escalones</option><option value="flat">Liso</option>
+          </select>
+          <input type="number" id="bulk-depth" class="input" min="0" max="20" step="0.1" placeholder="mm" aria-label="Profundidad para todos" title="Profundidad para todos (mm)">
+        </div>
+        <div id="mat-list" class="mats"></div>
+      </section>
+    </aside>
+  </main>
+  <div id="toasts" class="toasts"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
