@@ -72,6 +72,8 @@ milímetros.
 - **Vista 3D e imágenes**: original, esculpido y sólido cerrado en el navegador; imágenes sombreadas a partir de la
   propia geometría, desde cualquier ángulo, ampliadas sobre un punto o junto al original.
 - **STL** en milímetros con la base en z = 0, descargado o guardado en una carpeta `Phidias` junto al modelo de origen.
+- **Archivos de impresión**: exporta el esculpido a 3MF con sus materiales. Parte un sólido cerrado por un plano
+  X, Y o Z y añade encajes con la holgura que indiques. Descarga los dos STL o un 3MF con las piezas separadas.
 
 Forma parte de la familia Hoard (ver `faustus-plugin.json`): las mismas herramientas que usan los botones están al
 alcance de los asistentes por MCP (`mcp_server.py`), con imágenes de los materiales y de los modelos para que puedan

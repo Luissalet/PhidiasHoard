@@ -95,6 +95,18 @@
         </div>
         <label class="check"><input type="checkbox" id="close-fill-interior" checked><span>Rellenar cavidades al cerrar</span></label>
       </section>
+      <section class="card" id="print-card" hidden>
+        <h2>Archivos de impresión</h2>
+        <div class="row">
+          <a class="btn small" id="download-color-3mf">3MF con materiales</a>
+          <button class="btn small" id="btn-split" type="button">Partir sólido</button>
+        </div>
+        <div class="row" id="print-pieces" hidden>
+          <a class="btn small" id="download-piece-a">STL A</a>
+          <a class="btn small" id="download-piece-b">STL B</a>
+          <a class="btn small" id="download-pieces-3mf">3MF de las piezas</a>
+        </div>
+      </section>
       <section class="card">
         <h2>Piezas <small id="piece-count"></small></h2>
         <div id="piece-list" class="mats"></div>

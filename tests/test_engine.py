@@ -177,6 +177,31 @@ def test_learned_relief_keeps_atlas_islands_separate_and_reuses_cache(tmp_path, 
     assert np.array_equal(learned_relief.height_map(scene, 0, str(model), "", cache), h) and calls == [2]
 
 
+def test_split_creates_mating_watertight_parts_and_a_3mf(tmp_path):
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    from phidias_hoard.engine import finish, print_split
+
+    blender = finish.find_blender()
+    if not blender:
+        pytest.skip("Blender is not installed")
+    pts = np.array([[0, 0, 0], [30, 0, 0], [30, 20, 0], [0, 20, 0], [0, 0, 12], [30, 0, 12], [30, 20, 12], [0, 20, 12]], dtype=float)
+    faces = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+                      [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]], dtype=np.int32)
+    spec = {"axis": "x", "position_mm": None, "pins": 2, "diameter_mm": 4, "depth_mm": 3, "clearance_mm": 0.25}
+    result = print_split.create(pts, faces, spec, tmp_path, blender)
+    assert result["position_mm"] == 15
+    a, fa = finish.read_stl(tmp_path / "piece-a.stl")
+    b, fb = finish.read_stl(tmp_path / "piece-b.stl")
+    assert S.open_edges(fa, len(a)) == S.open_edges(fb, len(b)) == 0
+    assert a[:, 0].max() == pytest.approx(18)
+    assert b[:, 0].max() == pytest.approx(15)
+    with zipfile.ZipFile(tmp_path / "pieces.3mf") as package:
+        model = ET.fromstring(package.read("3D/3dmodel.model"))
+    assert model.attrib["unit"] == "millimeter" and len(model.findall(".//{*}item")) == 2
+
+
 def write_wall(tmp_path, with_shadow=True):
     """A floor, a wall standing on it and (optionally) a shadow plane, as an OBJ with its MTL and textures."""
     brick_texture(tmp_path / "brick.png")

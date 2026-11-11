@@ -20,7 +20,7 @@ import numpy as np
 from . import __version__
 from .config import Config, Settings
 from . import director
-from .engine import export, finish, heights, learned_relief, meshio, patterns, plinth_detail, preview, recipes
+from .engine import export, finish, heights, learned_relief, meshio, patterns, plinth_detail, preview, print_split, recipes, three_mf
 from .llm import ModelClient
 from .remodel import build as remodel_build
 from .remodel import pieces as remodel_pieces
@@ -58,6 +58,7 @@ class Services:
         self._worker: Optional[threading.Thread] = None
         self._lock = threading.RLock()
         self._depth_lock = threading.Lock()
+        self._print_lock = threading.Lock()
         self._scenes: "OrderedDict[str, meshio.Scene]" = OrderedDict()
         self._library: Optional[dict[str, Any]] = None
 
@@ -591,6 +592,8 @@ class Services:
                 job["result"] = director.run_remodel(self, job["project_id"], job["params"]["rounds"], job["params"]["wish"], say)
             elif job["kind"] == "direct":
                 job["result"] = self._do_direct(job["project_id"], say, job["params"], begin_publish)
+            elif job["kind"] == "split":
+                job["result"] = self._do_split(job["project_id"], say, job["params"])
             else:
                 job["result"] = self._do_close(job["project_id"], say, job["params"]["fill_interior"])
             job["state"] = "done"
@@ -633,6 +636,9 @@ class Services:
             size = export.write_stl(draft / "sculpt.stl", P, F, project["name"])
             np.save(draft / "sculpt_P.npy", P.astype(np.float32))
             np.save(draft / "sculpt_F.npy", F)
+            materials = np.zeros(len(F), dtype=np.uint16)
+            materials[:len(result.M)] = result.M.astype(np.uint16) + 1
+            np.save(draft / "sculpt_M.npy", materials)
             say("vista 3D", 0.9)
             limit = int(self.settings["preview_faces"])
             view = result
@@ -646,12 +652,17 @@ class Services:
             preview.render(view_p, view_f, size=640).save(draft / "sculpt.png")
             info = {**result.info, "file_bytes": size, "triangles_total": int(len(F)), "open_edges": sculpting.open_edges(F, len(P)),
                     "seconds": round(time.time() - t0, 1), "at": time.time(), "settings": {k: getattr(st, k) for k in PROJECT_SETTINGS}}
+            info["materials"] = [["Base", [205, 197, 182]]]
+            for mat in scene.materials:
+                rgb = mat.color if mat.albedo is None else np.median(mat.albedo[::8, ::8, :3].reshape(-1, 3), axis=0)
+                info["materials"].append([mat.name, [int(channel) for channel in rgb]])
             begin_publish()
             for artifact in draft.iterdir():
                 artifact.replace(pdir / artifact.name)
         project = self.store.get(pid)
         project.setdefault("results", {})["sculpt"] = info
         project["results"].pop("closed", None)
+        self._clear_split(project, pdir)
         for stale in ("closed.stl", "closed.bin", "closed.png", "closed_P.npy", "closed_F.npy"):
             (pdir / stale).unlink(missing_ok=True)
         self.store.save(project)
@@ -695,9 +706,76 @@ class Services:
                 "fill_interior": fill_interior, "cavities_filled": cavities}
         info["watertight"] = info["open_edges"] == 0
         project = self.store.get(pid)
+        self._clear_split(project, pdir)
         project.setdefault("results", {})["closed"] = info
         self.store.save(project)
         return info
+
+    def start_split(self, pid: str, spec: dict[str, Any]) -> dict[str, Any]:
+        project = self.store.get(pid)
+        if not project.get("results", {}).get("closed", {}).get("watertight"):
+            raise PhidiasError("invalid", "Primero cierra la malla para obtener un sólido estanco.")
+        if not finish.find_blender(self.settings["blender"]):
+            raise PhidiasError("unavailable", "Hace falta Blender para partir la malla.")
+        return self._enqueue("split", pid, spec)
+
+    @staticmethod
+    def _clear_split(project: dict[str, Any], pdir: Path) -> None:
+        if project.get("results", {}).pop("split", None):
+            for file in ("piece-a.stl", "piece-b.stl", "pieces.3mf"):
+                try:
+                    (pdir / file).unlink(missing_ok=True)
+                except OSError:
+                    log.warning("Could not remove obsolete print file %s", file)
+
+    def _do_split(self, pid: str, say, spec: dict[str, Any]) -> dict[str, Any]:
+        project = self.store.get(pid)
+        blender = finish.find_blender(self.settings["blender"])
+        if not blender:
+            raise PhidiasError("unavailable", "Hace falta Blender para partir la malla.")
+        P, F = self.mesh(pid, "closed")
+        pdir = self.store.dir(pid)
+        with tempfile.TemporaryDirectory(prefix="split-", dir=pdir) as temp:
+            say("cortando y preparando encajes", 0.15)
+            folder = Path(temp)
+            try:
+                info = print_split.create(P, F, spec, folder, blender)
+            except ValueError as exc:
+                raise PhidiasError("invalid", str(exc)) from exc
+            say("guardando las piezas", 0.95)
+            for name in ("piece-a.stl", "piece-b.stl", "pieces.3mf"):
+                (folder / name).replace(pdir / name)
+        project.setdefault("results", {})["split"] = info
+        self.store.save(project)
+        return info
+
+    def print_file(self, pid: str, which: str) -> Path:
+        project = self.store.get(pid)
+        results = project.get("results", {})
+        pdir = self.store.dir(pid)
+        if which in ("piece-a.stl", "piece-b.stl", "pieces.3mf") and "split" in results and (pdir / which).is_file():
+            return pdir / which
+        if which not in ("sculpt.3mf", "closed.3mf") or which[:-4] not in results:
+            raise PhidiasError("not_found", "Ese archivo de impresión todavía no existe.")
+        source = which[:-4]
+        with self._print_lock:
+            return self._mesh_print_file(pid, project, pdir, source)
+
+    def _mesh_print_file(self, pid, project, pdir, source):
+        path = pdir / f"{source}.3mf"
+        if path.is_file() and path.stat().st_mtime_ns >= (pdir / f"{source}.stl").stat().st_mtime_ns:
+            return path
+        P, F = self.mesh(pid, source)
+        attrs = pdir / "sculpt_M.npy"
+        materials = np.load(attrs, allow_pickle=False) if source == "sculpt" and attrs.is_file() else None
+        palette = project["results"][source].get("materials") or [("Base", (205, 197, 182))]
+        if materials is not None and (len(materials) != len(F) or (len(materials) and materials.max() >= len(palette))):
+            materials = None
+        with tempfile.TemporaryDirectory(prefix="3mf-", dir=pdir) as temp:
+            draft = Path(temp) / path.name
+            three_mf.write(draft, [(project["name"], P, F, materials)], palette)
+            draft.replace(path)
+        return path
 
     # ------------------------------------------------------------------ results
     def mesh(self, pid: str, which: str) -> tuple[np.ndarray, np.ndarray]:
@@ -750,14 +828,26 @@ class Services:
         r = project["results"]["remodel"]
         return {"path": paths[0], "paths": paths, "result": "remodel", "quads": r["quads"], "tris": r["tris"], "ngons": r["ngons"]}
 
-    def export_result(self, pid: str, which: str = "", folder: str = "") -> dict[str, Any]:
+    def export_result(self, pid: str, which: str = "", folder: str = "", fmt: str = "stl") -> dict[str, Any]:
         project = self.store.get(pid)
         results = project.get("results", {})
-        which = which or ("remodel" if "remodel" in results else ("closed" if "closed" in results else "sculpt"))
+        if not which:
+            if fmt == "3mf":
+                which = "split" if "split" in results else "sculpt"
+            else:
+                which = "remodel" if "remodel" in results else ("closed" if "closed" in results else "sculpt")
         if which == "remodel":
+            if fmt == "3mf":
+                raise PhidiasError("invalid", "Elige el esculpido, el sólido cerrado o las piezas para exportar 3MF.")
             return self._export_remodel(project, folder)
-        src = self.store.dir(pid) / f"{which}.stl"
-        if which not in RESULTS or not src.is_file():
+        if which == "split":
+            files = ["pieces.3mf"] if fmt == "3mf" else ["piece-a.stl", "piece-b.stl", "pieces.3mf"]
+            sources = [self.print_file(pid, name) for name in files]
+        elif fmt == "3mf":
+            sources = [self.print_file(pid, f"{which}.3mf")]
+        else:
+            sources = [self.store.dir(pid) / f"{which}.stl"]
+        if which not in results or any(not src.is_file() for src in sources):
             raise PhidiasError("not_found", "Ese resultado todavía no existe.", "Lanza sculpt_start y espera a que acabe.")
         if folder:
             dest = Path(folder).expanduser()
@@ -772,6 +862,11 @@ class Services:
             dest.mkdir(parents=True, exist_ok=True)
         safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in project["name"]).strip() or project["id"]
         size = int(round(float(project["settings"].get("size_mm", 0))))
-        out = dest / f"{safe} {size}mm{' cerrado' if which == 'closed' else ''}.stl"
-        shutil.copyfile(src, out)
-        return {"path": str(out), "bytes": out.stat().st_size, "result": which, "triangles": results[which].get("triangles_total")}
+        paths = []
+        for src in sources:
+            suffix = f" {src.stem}" if which == "split" else (" cerrado" if which == "closed" else "")
+            out = dest / f"{safe} {size}mm{suffix}{src.suffix}"
+            shutil.copyfile(src, out)
+            paths.append(out)
+        return {"path": str(paths[0]), "paths": [str(p) for p in paths], "bytes": sum(p.stat().st_size for p in paths),
+                "result": which, "triangles": results[which].get("triangles_total")}

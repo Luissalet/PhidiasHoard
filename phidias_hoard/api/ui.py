@@ -98,3 +98,13 @@ def download(request: Request, pid: str, which: str):
     name = f"{project['name']} {size}mm{' cerrado' if which == 'closed' else ''}.stl"
     return FileResponse(path, media_type="model/stl",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", **NO_CACHE})
+
+
+@router.get("/api/projects/{pid}/print/{filename}")
+def print_download(request: Request, pid: str, filename: str):
+    svc = services(request)
+    project = svc.store.get(pid)
+    path = svc.print_file(pid, filename)
+    name = f"{project['name']} {path.name}"
+    mime = "model/3mf" if path.suffix == ".3mf" else "model/stl"
+    return FileResponse(path, media_type=mime, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", **NO_CACHE})

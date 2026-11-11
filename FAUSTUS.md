@@ -85,6 +85,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - Look at any result (`model_look`): `before`, `sculpt` or `closed`; named views or any yaw/pitch; `region`
   `[x, y, z, radius]` in print millimetres; `compare` puts the original next to it.
 - Export (`result_export`): the STL into a `Phidias` folder next to the source model, or the folder given.
+  `format: "3mf"` retains per-face materials in new sculpts. `split_start` cuts a watertight solid on a plane
+  with optional peg diameter, depth and clearance. Export `result: "split"` for the two STL parts and their 3MF.
 - Studio UI with the same handlers: library, projects, 3D view of the three results, material list with thumbnails,
   recipe and depth per material, the picture of each recipe, job progress, download and save buttons, settings.
 
@@ -104,7 +106,7 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - Keep detail finer than the voxel size in the watertight solid.
 - Recognise stairs by shape: the steps recipe is chosen by material name, by the model or by hand.
 - Direct a sculpt without a vision model reachable, or cancel a direction half way.
-- Split a model into parts for a small printer, add supports or slice.
+- Add supports or slice. The 3MF assigns materials to faces. It cannot derive separate material volumes from a surface.
 - Undo a sculpt: each sculpt replaces the previous result of the project.
 
 ## Where things are
