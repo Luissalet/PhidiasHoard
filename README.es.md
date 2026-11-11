@@ -27,7 +27,7 @@ milímetros.
   segmentos). El resultado es un `.blend` con un objeto por pieza y los biseles como modificadores vivos, y un OBJ
   en quads. La vista 3D y las imágenes dibujan las aristas de la malla.
 - **Biblioteca**: dile en qué carpetas guardas los modelos. Lista cada OBJ (con su MTL y texturas), Collada (`.dae`),
-  GLB y glTF que encuentra, también dentro de zips, agrupados por carpeta. Un escenario que viene en varios formatos
+  GLB, glTF, FBX y `.blend` que encuentra, también dentro de zips, agrupados por carpeta. Un escenario que viene en varios formatos
   aparece una vez, en el más completo.
 - **Proyecto**: al abrir un modelo lee su geometría y sus materiales y propone una receta para cada material. Los
   zips se descomprimen dentro del proyecto; lo demás se lee donde está.
@@ -80,7 +80,8 @@ solo (o se indica su ruta en Ajustes); sin él funciona todo menos el sólido ce
 
 ## Límites
 
-- Formatos: OBJ, Collada, GLB y glTF. Los FBX y `.blend` hay que convertirlos antes.
+- Para abrir FBX o `.blend` hace falta Blender. Phidias convierte la escena a GLB en segundo plano y la guarda en la
+  carpeta del proyecto para poder abrirla otra vez sin convertirla. El original no se modifica.
 - El relieve sale de lo que contienen las texturas. Un color plano no da nada, y un atlas horneado sin mapas de
   normales da menos que las texturas originales del juego.
 - El sólido cerrado pierde el detalle más fino que su tamaño de vóxel y deja huecos los espacios cerrados.

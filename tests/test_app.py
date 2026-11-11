@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import zipfile
 
 import pytest
@@ -53,6 +54,56 @@ def test_library_lists_models_and_zips(client):
     assert call(client, "library_scan", query="pack")["count"] == 1
     assert lib["groups"] == {"Torre": 1, "lib": 1}
     assert call(client, "library_scan", group="torre", limit=1)["entries"][0]["format"] == "obj"
+
+
+def test_import_blender_models(client, tmp_path):
+    from phidias_hoard.engine.finish import find_blender
+
+    blender = find_blender()
+    if not blender:
+        pytest.skip("Blender is not installed")
+    blend = tmp_path / "lib" / "room.blend"
+    fbx = tmp_path / "arch.fbx"
+    script = tmp_path / "make_models.py"
+    script.write_text(
+        "import bpy\n"
+        "bpy.ops.wm.read_factory_settings(use_empty=True)\n"
+        "bpy.ops.mesh.primitive_cube_add()\n"
+        "mat = bpy.data.materials.new('Stone')\n"
+        "bpy.context.object.data.materials.append(mat)\n"
+        f"bpy.ops.wm.save_as_mainfile(filepath={str(blend)!r})\n"
+        f"bpy.ops.export_scene.fbx(filepath={str(fbx)!r})\n",
+        encoding="utf-8",
+    )
+    run = subprocess.run([blender, "-b", "--factory-startup", "--python-exit-code", "1", "--python", str(script)],
+                         capture_output=True, text=True, errors="replace", timeout=90)
+    assert run.returncode == 0, run.stdout + run.stderr
+    pack = tmp_path / "lib" / "fbx-only.zip"
+    with zipfile.ZipFile(pack, "w") as z:
+        z.write(fbx, "game/arch.fbx")
+    before = {path: path.read_bytes() for path in (blend, pack)}
+    entries = {e["format"]: e for e in call(client, "library_scan")["entries"]}
+    for fmt, source, inner in (("blend", blend, ""), ("fbx", pack, "game/arch.fbx")):
+        entry = entries[fmt]
+        assert (entry["path"], entry["inner"]) == (str(source), inner)
+        p = call(client, "project_create", source=entry["path"], inner=entry["inner"])
+        assert p["source"]["format"] == fmt and p["source"]["triangles"] == 12
+        assert p["source"]["path"] == str(source) and p["source"]["inner"] == inner
+        assert p["materials"]["Stone"]["triangles"] == 12
+        assert client.get(f"/api/projects/{p['id']}/mesh/before.bin").status_code == 200
+        client.svc._scenes.clear()
+        assert len(client.svc.scene(p["id"]).F) == 12
+        assert source.read_bytes() == before[source]
+
+
+def test_blender_import_without_blender_leaves_no_project(client, tmp_path, monkeypatch):
+    source = tmp_path / "lib" / "room.blend"
+    source.write_bytes(b"source")
+    monkeypatch.setattr("phidias_hoard.engine.finish.find_blender", lambda _: None)
+    response = client.post("/api/ui/call", json={"name": "project_create", "arguments": {"source": str(source)}})
+    assert response.status_code == 503 and "Blender" in response.json()["error"]
+    assert not list(client.svc.config.projects_dir.iterdir())
+    assert source.read_bytes() == b"source"
 
 
 def test_project_from_zip_to_stl(client, tmp_path):

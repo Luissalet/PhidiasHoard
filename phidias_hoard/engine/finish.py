@@ -12,6 +12,7 @@ from typing import Optional
 import numpy as np
 
 SCRIPT = Path(__file__).with_name("blender_close.py")
+IMPORT_SCRIPT = Path(__file__).with_name("blender_import.py")
 
 
 def find_blender(configured: str = "") -> Optional[str]:
@@ -40,6 +41,16 @@ def find_blender(configured: str = "") -> Optional[str]:
         if Path(cand).is_file():
             return cand
     return None
+
+
+def import_model(blender: str, source: Path, glb: Path, timeout_s: float = 180) -> None:
+    cmd = [blender, "-b", "--factory-startup", "--disable-autoexec", "--python-exit-code", "1", "--python",
+           str(IMPORT_SCRIPT), "--", str(source.resolve()), str(glb.resolve())]
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    run = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout_s, creationflags=flags)
+    if run.returncode or not glb.is_file():
+        tail = "\n".join((run.stdout + "\n" + run.stderr).strip().splitlines()[-10:])
+        raise RuntimeError(f"Blender did not export the model.\n{tail}")
 
 
 def close_mesh(blender: str, ply_in: Path, stl_out: Path, voxel_mm: float, shell_mm: float, max_faces: int,

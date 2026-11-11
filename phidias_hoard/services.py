@@ -7,6 +7,7 @@ import logging
 import os
 import queue
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -110,7 +111,6 @@ class Services:
                         break
         # a package and its unpacked copy side by side: keep the unpacked one; and one format per loose scene
         loose_best: dict[tuple[str, str, str], dict[str, Any]] = {}
-        rank = {"glb": 0, "gltf": 1, "dae": 2, "obj": 3}
         for e in entries:
             if e["inner"]:
                 continue
@@ -118,7 +118,7 @@ class Services:
             if folder.name.lower() == "obj":
                 folder = folder.parent
             key = (e["group"], str(folder).lower(), Path(e["path"]).stem.lower())
-            if key not in loose_best or rank.get(e["format"], 9) < rank.get(loose_best[key]["format"], 9):
+            if key not in loose_best or meshio.MODEL_RANK["." + e["format"]] < meshio.MODEL_RANK["." + loose_best[key]["format"]]:
                 loose_best[key] = e
         keep_loose = {id(e) for e in loose_best.values()}
         loose_names = {(e["group"], Path(e["path"]).stem.lower()) for e in loose_best.values()}
@@ -140,11 +140,20 @@ class Services:
                 "project_id": used.get(str(path).lower() + "|" + inner.lower(), "")}
 
     # ------------------------------------------------------------------ projects
-    def _model_path(self, project: dict[str, Any]) -> Path:
+    def _original_path(self, project: dict[str, Any]) -> Path:
         src = project.get("source", {})
         if src.get("inner"):
-            return self.store.dir(project["id"]) / "src" / src["inner"]
+            root = (self.store.dir(project["id"]) / "src").resolve()
+            path = (root / src["inner"]).resolve()
+            if not path.is_relative_to(root):
+                raise PhidiasError("invalid", "El modelo del ZIP está fuera de la carpeta de extracción.")
+            return path
         return Path(src.get("path", ""))
+
+    def _model_path(self, project: dict[str, Any]) -> Path:
+        if project["source"].get("converted"):
+            return self.store.dir(project["id"]) / "source.glb"
+        return self._original_path(project)
 
     def scene(self, pid: str) -> meshio.Scene:
         with self._lock:
@@ -156,31 +165,29 @@ class Services:
         if not path.is_file():
             raise PhidiasError("not_found", f"El modelo de origen ya no está en {path}.", "Vuelve a crear el proyecto desde la biblioteca.")
         scene = meshio.load_model(path)
+        self._remember_scene(pid, scene)
+        return scene
+
+    def _remember_scene(self, pid: str, scene: meshio.Scene) -> None:
         with self._lock:
             self._scenes[pid] = scene
             while len(self._scenes) > 2:
                 self._scenes.popitem(last=False)
-        return scene
 
     def create_project(self, source: str, inner: str = "", name: str = "") -> dict[str, Any]:
         path = Path(source).expanduser()
         if not path.is_file():
-            raise PhidiasError("not_found", f"No existe el archivo {path}.", "Pasa la ruta de un .obj, .glb, .gltf o un .zip que los contenga.")
+            raise PhidiasError("not_found", f"No existe el archivo {path}.", "Pasa la ruta del modelo o de un ZIP que lo contenga.")
         pid = self.store.new_id()
         pdir = self.store.dir(pid)
         low = path.suffix.lower()
         if low == ".zip":
             models = meshio.zip_models(path)
             if not models:
-                raise PhidiasError("invalid", "Ese zip no trae ningún modelo OBJ, DAE, GLB o glTF.")
+                raise PhidiasError("invalid", "Ese ZIP no trae ningún modelo OBJ, DAE, GLB, glTF, FBX o .blend.")
             inner = inner if inner in models else meshio.pick_model(models)
-            pdir.mkdir(parents=True, exist_ok=True)
-            folder = inner.replace("\\", "/").rpartition("/")[0]
-            if folder.lower().endswith("/obj"):            # textures of an OBJ folder may sit one level up
-                folder = folder[:-4]
-            meshio.extract_zip(path, pdir / "src", folder)
         elif low not in meshio.MODEL_EXTS:
-            raise PhidiasError("invalid", f"Formato no admitido: {low}.", "Formatos: .obj (con su .mtl y texturas), .dae, .glb, .gltf o .zip.")
+            raise PhidiasError("invalid", f"Formato no admitido: {low}.", "Formatos: OBJ, DAE, GLB, glTF, FBX, .blend y ZIP.")
         else:
             inner = ""
         project = {"id": pid, "name": (name or (Path(inner).stem if inner else path.stem)).replace("_", " ").strip()[:120],
@@ -189,7 +196,28 @@ class Services:
         project["settings"].update({"ground": True})
         self.store.save(project)
         try:
-            scene = self.scene(pid)
+            original = self._original_path(project)
+            if inner:
+                folder = inner.replace("\\", "/").rpartition("/")[0]
+                if folder.lower().endswith("/obj"):        # textures of an OBJ folder may sit one level up
+                    folder = folder[:-4]
+                meshio.extract_zip(path, pdir / "src", folder)
+            if not original.is_file():
+                raise PhidiasError("not_found", f"El ZIP no contiene el modelo {inner}.")
+            model = original
+            if original.suffix.lower() in meshio.BLENDER_EXTS:
+                blender = finish.find_blender(self.settings["blender"])
+                if not blender:
+                    raise PhidiasError("unavailable", "Hace falta Blender para importar FBX o .blend.",
+                                       "Indica la ruta de Blender en Ajustes.")
+                model = pdir / "source.glb"
+                try:
+                    finish.import_model(blender, original, model)
+                except subprocess.TimeoutExpired as exc:
+                    raise PhidiasError("failed", "Blender tardó más de tres minutos en convertir el modelo.",
+                                       "Exporta el modelo a GLB desde Blender e impórtalo de nuevo.") from exc
+                project["source"]["converted"] = True
+            scene = meshio.load_model(model)
         except PhidiasError:
             self.store.delete(pid)
             raise
@@ -210,8 +238,9 @@ class Services:
         project["materials"] = mats
         ext = scene.extents
         project["source"].update({"triangles": int(len(scene.F)), "points": int(len(scene.P)),
-                                  "extents": [round(float(v), 4) for v in ext], "format": self._model_path(project).suffix.lower().lstrip(".")})
+                                  "extents": [round(float(v), 4) for v in ext], "format": original.suffix.lower().lstrip(".")})
         self.store.save(project)
+        self._remember_scene(pid, scene)
         self._library = None
         try:
             self._write_before(project, scene)
