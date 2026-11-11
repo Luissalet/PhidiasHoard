@@ -53,7 +53,7 @@ milímetros.
     y el mapa de alturas que tallaría cada receta antes de esculpir.
 - **Detalle añadido**: además de su receta, un material puede recibir detalle esculpido que su textura no trae, puesto
   a tamaño real en milímetros sean como sean sus UV: roca, grietas, adoquines, ladrillo, tablas, tejas, corteza, ondas
-  y estrías de columna, cada uno con el tamaño de sus piezas y su profundidad.
+  y estrías de columna, madera tallada, escamas y musgo. Las estrías siguen el fuste y las tejas siguen la pendiente.
 - **Dirigido por el modelo**: un botón deja el esculpido en manos del modelo con visión de la familia. Mira cada
   material y dice qué es, elige receta, profundidad, recortes y detalle añadido, y compara cada prueba con el
   original y con la prueba anterior. Puede pedir primeros planos de un material o una zona antes de decidir

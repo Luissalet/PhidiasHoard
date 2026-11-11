@@ -4,8 +4,6 @@
   hoy, pero hay packs que solo traen FBX).
 - Relieve con modelo: estimar el mapa de alturas de una textura con una red (normales o profundidad a partir del
   color) para los atlas horneados sin normales y para texturas donde las líneas oscuras no bastan.
-- Detalle añadido orientado por la pieza (estrías que sigan el eje de una columna inclinada, tejas que sigan la
-  pendiente) y más patrones (madera tallada, escamas, musgo).
 - Escalones por forma: detectar rampas con textura periódica sin depender del nombre del material.
 - Volumen para hojas y árboles en plano (copas a partir de las láminas cruzadas).
 - Partir un modelo grande en piezas con encajes para impresoras pequeñas, y cortes por plano.

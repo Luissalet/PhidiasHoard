@@ -240,7 +240,12 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
             e = enrich[i]
             pts = np.unique(idx)
             extra = np.zeros(len(P))
-            extra[pts] = patterns.triplanar(e["pattern"], P[pts], normals[pts], e["size_mm"]) * e["depth_mm"]
+            name = e["pattern"]
+            if name in patterns.ORIENTED:
+                height = patterns.oriented(name, P[pts], np.searchsorted(pts, F[sel]), normals[pts], e["size_mm"])
+            else:
+                height = patterns.triplanar(name, P[pts], normals[pts], e["size_mm"])
+            extra[pts] = height * e["depth_mm"]
             disp_sum += np.bincount(idx, weights=extra[idx], minlength=len(P))
         if i in slopes:
             sx, sy, sign = slopes[i]

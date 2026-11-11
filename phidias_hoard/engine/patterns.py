@@ -8,16 +8,21 @@ from functools import lru_cache
 
 import numpy as np
 from scipy import ndimage
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 from . import heights
 
 N = 512
 # pattern -> how many features (cells, courses, planks) one tile holds across
-CELLS = {"rock": 4, "cracks": 5, "cobble": 6, "bricks": 4, "planks": 6, "tiles": 4, "bark": 6, "ripples": 6, "flutes": 6}
+CELLS = {"rock": 4, "cracks": 5, "cobble": 6, "bricks": 4, "planks": 6, "tiles": 4, "bark": 6, "ripples": 6, "flutes": 6,
+         "carved_wood": 4, "scales": 6, "moss": 5}
 PATTERNS = tuple(CELLS)
 LABELS = {"rock": "roca", "cracks": "grietas", "cobble": "adoquines", "bricks": "ladrillo", "planks": "tablas", "tiles": "tejas",
-          "bark": "corteza", "ripples": "ondas", "flutes": "estrías"}
+          "bark": "corteza", "ripples": "ondas", "flutes": "estrías", "carved_wood": "madera tallada", "scales": "escamas",
+          "moss": "musgo"}
+ORIENTED = {"flutes", "tiles"}
 
 
 def _noise(rng: np.random.Generator, beta: float, stretch: tuple[float, float] = (1.0, 1.0)) -> np.ndarray:
@@ -84,6 +89,20 @@ def pattern(name: str) -> np.ndarray:
         h = -np.sqrt(np.clip(1 - ((fu - 0.5) / 0.42) ** 2, 0, 1)) * 1.0 + 0.0 * v
     elif name == "ripples":
         h = np.sin(2 * np.pi * (v * CELLS["ripples"] + 0.6 * _noise(rng, 2.2)))
+    elif name == "carved_wood":
+        wave = u * CELLS[name] + 0.22 * np.sin(2 * np.pi * v * 2)
+        grooves = np.abs(np.sin(np.pi * wave)) ** 0.45
+        h = 1.4 * grooves - 1 + 0.18 * _noise(rng, 1.4, (1.0, 0.15))
+    elif name == "scales":
+        k = CELLS[name]
+        row = np.floor(v * k).astype(int)
+        x, y = 2 * ((u * k + 0.5 * (row % 2)) % 1) - 1, (v * k) % 1
+        edge = 0.68 * np.sqrt(np.clip(1 - x**2, 0, 1))
+        h = 0.65 * (1 - y) - 0.8 * np.exp(-((y - edge) / 0.08) ** 2)
+    elif name == "moss":
+        f1, _, _ = _voronoi(rng, 26)
+        clumps = np.exp(-(f1 / 0.10) ** 2)
+        h = 1.1 * clumps - 0.35 + 0.32 * _noise(rng, 1.15)
     else:
         raise ValueError(f"unknown pattern: {name}")
     h = ndimage.gaussian_filter(h.astype(np.float32), 1.0, mode="wrap")
@@ -101,4 +120,43 @@ def triplanar(name: str, points: np.ndarray, normals: np.ndarray, size_mm: float
     out = w[:, 0] * heights.sample(tile, np.stack([p[:, 1], p[:, 2]], 1))
     out += w[:, 1] * heights.sample(tile, np.stack([p[:, 0], p[:, 2]], 1))
     out += w[:, 2] * heights.sample(tile, np.stack([p[:, 0], p[:, 1]], 1))
+    return out
+
+
+def oriented(name: str, points: np.ndarray, faces: np.ndarray, normals: np.ndarray, size_mm: float) -> np.ndarray:
+    """Sample directional patterns in each connected piece's own frame."""
+    out = triplanar(name, points, normals, size_mm)
+    if name not in ORIENTED:
+        return out
+    count, labels = connected_components(
+        coo_matrix((np.ones(2 * len(faces), dtype=bool), (faces[:, :2].reshape(-1), faces[:, 1:].reshape(-1))),
+                   shape=(len(points), len(points))), directed=False)
+    order = np.argsort(labels, kind="stable") if count > 1 else np.arange(len(points))
+    sizes = np.bincount(labels, minlength=count)
+    tile = pattern(name)
+    for part in np.split(order, np.cumsum(sizes)[:-1]):
+        if len(part) < 3:
+            continue
+        p = points[part] - points[part].mean(axis=0)
+        if name == "flutes":
+            values, vectors = np.linalg.eigh(p.T @ p)
+            if values[2] <= 1.2 * values[1] or values[1] < 1e-10:
+                continue
+            # The long axis of a shaft can point in any direction. Angular samples follow it at constant phase.
+            x, y = p @ vectors[:, 0], p @ vectors[:, 1]
+            radius = float(np.median(np.hypot(x, y)))
+            repeats = max(2, round(2 * np.pi * radius / size_mm))
+            u = np.arctan2(y, x) * repeats / (2 * np.pi * CELLS[name])
+            out[part] = heights.sample(tile, np.column_stack([u, np.zeros(len(u))]))
+        else:
+            n = normals[part]
+            slope = (np.abs(n[:, 2]) > 0.15) & (np.abs(n[:, 2]) < 0.9999)
+            n = n[slope]
+            n = np.where(n[:, 2:3] < 0, -n, n)
+            across = np.cross([0, 0, 1], n)
+            across /= np.linalg.norm(across, axis=1, keepdims=True)
+            rise = np.cross(n, across)
+            p = p[slope]
+            uv = np.column_stack([np.sum(p * across, axis=1), np.sum(p * rise, axis=1)]) / (size_mm * CELLS[name])
+            out[part[slope]] = heights.sample(tile, uv)
     return out

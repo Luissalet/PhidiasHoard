@@ -66,7 +66,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - Recipes (`material_set`; `"*"` = every material): `normal`, `relief`, `lines`, `steps`, `flat`, `drop`, `auto`;
   `depth_mm`, `invert`, `smooth`, `cutout`, `steps` (edges per tile, 0 = counted from the texture).
 - Added detail (`material_set` with `enrich: {pattern, size_mm, depth_mm}`, `no_enrich` removes it): rock, cracks,
-  cobble, bricks, planks, tiles, bark, ripples, flutes, laid by position in millimetres (three projections blended),
+  cobble, bricks, planks, tiles, bark, ripples, flutes, carved wood, scales and moss, at real size in millimetres.
+  Flutes follow the shaft and tiles follow the slope,
   on top of any recipe; the mesh is refined enough to draw the pattern.
 - Direction by the vision model (`direct_start` with optional `rounds` and `wish`): reads the materials from pictures,
   sets recipe, depth, cut-out, steps and enrich per material, sculpts a test inside `director_faces`, looks at it

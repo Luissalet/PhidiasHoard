@@ -48,7 +48,7 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
     height map each recipe would carve before you sculpt.
 - **Added detail**: on top of any recipe a material can take sculpted detail its texture does not hold, laid by real
   size in millimetres whatever the UVs are: rock, cracks, cobbles, bricks, planks, roof tiles, bark, ripples and
-  column flutes, each with the size of its features and its depth.
+  column flutes, carved wood, scales and moss. Flutes follow the shaft and tiles follow the roof slope.
 - **Directed by the model**: one button hands the sculpt to the family's vision model. It looks at every material and
   says what it is, chooses recipe, depth, cut-outs and added detail, and compares each test with the original and
   the previous trial. It can ask for close-ups of a material or an area before deciding whether to redo the sculpt.
