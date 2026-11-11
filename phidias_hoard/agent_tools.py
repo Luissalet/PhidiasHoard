@@ -226,7 +226,7 @@ TOOLS: list[Tool] = [
                              "for sizes and positions. Returns a job id. Result: a .blend (one object per piece, bevels as live modifiers) and an OBJ in quads.",
                              synonyms="remodelar, topología limpia, reconstruir"), RemodelStartArgs, ann(draft_safe=True), lambda s, a: s.start_remodel(a.project_id, a.direct, a.rounds, a.wish)),
     Tool("direct_start", _d("Let the family's vision model direct the sculpt: it looks at every material, decides recipe, depth, cut-outs and enrichment, "
-                            "has a test sculpted, looks at it next to the original and redoes it while it is not satisfied; then the final sculpt. Returns a job id.",
+                            "compares test sculpts with the original and the previous trial, and can request close-ups before deciding what to change. Returns a job id.",
                             "What it decided and why is kept in the project (director). Needs the vision model reachable (status.model).", "dirigir con IA, que lo decida el modelo, rehacer"),
          DirectArgs, ann(draft_safe=True), lambda s, a: s.start_direct(a.project_id, a.rounds, a.wish)),
     Tool("close_start", _d("Fuse the sculpt into one watertight solid with Blender (thickens loose sheets, voxel remesh). Returns a job id.",

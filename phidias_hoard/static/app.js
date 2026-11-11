@@ -295,9 +295,11 @@ function drawDirector() {
       continue;
     }
     const n = Object.keys(step.materials || {}).length;
+    const closeups = step.closeups?.length || 0;
     const head = step.step === 'materiales' ? 'Lectura de los materiales' : `${step.step[0].toUpperCase()}${step.step.slice(1)}: ${step.verdict === 'redo' ? 'rehacer' : 'aceptada'}`;
     box.append(el('div', { class: 'dstep' }, el('b', { text: head }), el('div', { text: step.scene || step.notes || '' }),
-      n ? el('div', { class: 'dchg', text: `${n} material${n === 1 ? '' : 'es'} cambiado${n === 1 ? '' : 's'}: ${Object.keys(step.materials).slice(0, 6).join(', ')}${n > 6 ? '…' : ''}` }) : null));
+      n ? el('div', { class: 'dchg', text: `${n} material${n === 1 ? '' : 'es'} cambiado${n === 1 ? '' : 's'}: ${Object.keys(step.materials).slice(0, 6).join(', ')}${n > 6 ? '…' : ''}` }) : null,
+      closeups ? el('div', { class: 'dchg', text: closeups === 1 ? 'Pidió un primer plano' : `Pidió ${closeups} primeros planos` }) : null));
   }
 }
 

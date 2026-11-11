@@ -150,6 +150,36 @@ def test_the_model_directs_looks_and_redoes(client):
     assert call(client, "project_get", project_id=pid)["materials"]["brick"]["enrich"] is None
 
 
+def test_director_gets_requested_closeups_and_compares_trials(client):
+    import io
+
+    from PIL import Image
+
+    class ReviewModel(FakeModel):
+        def ask(self, system, user, images, max_tokens=6000, timeout=None):
+            self.calls.append((user, [Image.open(io.BytesIO(img)).width for img in images]))
+            return [
+                {},
+                {"closeups": ["brick", {"center": [0.5, 0.5, 0.5], "radius": 0.15}, {"center": [1, 0, 9]}]},
+                {"verdict": "redo", "materials": {"brick": {"depth_mm": 1.1}}},
+                {"verdict": "ok", "notes": "La segunda prueba tiene juntas más claras."},
+            ][len(self.calls) - 1]
+
+    entry = call(client, "library_scan")["entries"][0]
+    project = call(client, "project_create", source=entry["path"], inner=entry["inner"])
+    model = ReviewModel()
+    client.svc.llm = model
+    result = call(client, "direct_start", project_id=project["id"], rounds=2)
+    assert result["state"] == "done" and result["result"]["director"]["rounds"] == 2
+    assert "requested close-ups" in model.calls[2][0]
+    assert len(model.calls[2][1]) == len(model.calls[1][1]) + 1
+    assert "Compare the previous and current trials" in model.calls[3][0]
+    assert model.calls[3][1][0] > model.calls[1][1][0]
+    saved = call(client, "project_get", project_id=project["id"])["director"]["log"]
+    assert [spot["label"] for spot in saved[1]["closeups"]] == ["brick", "requested region"]
+    assert saved[2]["notes"] == "La segunda prueba tiene juntas más claras."
+
+
 def test_answers_with_thinking_or_fences_are_read():
     from phidias_hoard.llm import extract_json
 

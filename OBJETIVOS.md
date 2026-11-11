@@ -4,7 +4,6 @@
   hoy, pero hay packs que solo traen FBX).
 - Relieve con modelo: estimar el mapa de alturas de una textura con una red (normales o profundidad a partir del
   color) para los atlas horneados sin normales y para texturas donde las líneas oscuras no bastan.
-- Que la dirección del modelo pueda pedir primeros planos de la zona que quiera y comparar dos pruebas entre sí.
 - Detalle añadido orientado por la pieza (estrías que sigan el eje de una columna inclinada, tejas que sigan la
   pendiente) y más patrones (madera tallada, escamas, musgo).
 - Cancelar una dirección o un esculpido en marcha.
