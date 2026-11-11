@@ -14,6 +14,7 @@ dependencies = ["fastapi>=0.115", "uvicorn[standard]>=0.30", "pydantic>=2.7", "h
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+depth = ["torch>=2.6", "transformers>=4.48", "safetensors>=0.4"]
 
 [project.scripts]
 phidias-hoard = "phidias_hoard.__main__:main"

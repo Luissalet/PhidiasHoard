@@ -5,7 +5,8 @@ import { $, el, api, toast, fail, modal, confirmBox, nf, store } from '/ui.js';
 
 const call = (name, args = {}) => api('/api/ui/call', { method: 'POST', body: { name, arguments: args } });
 const state = { project: null, which: 'before', library: null, projects: [], poll: null, loaded: '' };
-const RECIPES = [['auto', 'Automática'], ['normal', 'Mapa de normales'], ['relief', 'Relieve'], ['lines', 'Solo líneas'], ['steps', 'Escalones'], ['flat', 'Liso'], ['drop', 'Quitar']];
+const RECIPES = [['auto', 'Automática'], ['normal', 'Mapa de normales'], ['relief', 'Relieve'], ['depth', 'Relieve estimado'],
+  ['lines', 'Solo líneas'], ['steps', 'Escalones'], ['flat', 'Liso'], ['drop', 'Quitar']];
 const PATTERNS = [['', 'Sin detalle añadido'], ['rock', 'Roca'], ['cracks', 'Grietas'], ['cobble', 'Adoquines'],
   ['bricks', 'Ladrillo'], ['planks', 'Tablas'], ['tiles', 'Tejas'], ['bark', 'Corteza'], ['ripples', 'Ondas'],
   ['flutes', 'Estrías de columna'], ['carved_wood', 'Madera tallada'], ['scales', 'Escamas'], ['moss', 'Musgo']];
@@ -479,15 +480,21 @@ async function openSettings() {
   const voxel = el('input', { class: 'input', type: 'number', min: '0.05', max: '5', step: '0.05', value: s.voxel_mm });
   const shell = el('input', { class: 'input', type: 'number', min: '0', max: '20', step: '0.1', value: s.shell_mm });
   const blender = el('input', { class: 'input', type: 'text', value: s.blender, placeholder: st.blender || 'No encuentro Blender: escribe la ruta de blender.exe' });
+  const depthModel = el('input', { class: 'input', type: 'text', value: s.depth_model, placeholder: 'Carpeta de Depth Anything V2' });
+  const depthPython = el('input', { class: 'input', type: 'text', value: s.depth_python, placeholder: 'Opcional si Phidias ya tiene Torch y Transformers' });
   const r = await modal({ title: 'Ajustes', body: [
     el('label', {}, el('span', { text: 'Carpetas con modelos (OBJ, DAE, GLB, glTF, FBX, .blend o ZIP)' }), dirs),
     el('label', { class: 'field' }, el('span', { text: 'Cerrar malla: tamaño de vóxel (mm)' }), voxel),
     el('label', { class: 'field' }, el('span', { text: 'Cerrar malla: grosor de láminas sueltas (mm)' }), shell),
-    el('label', {}, el('span', { text: `Blender${st.blender ? ' (encontrado solo)' : ''}` }), blender)],
+    el('label', {}, el('span', { text: `Blender${st.blender ? ' (encontrado solo)' : ''}` }), blender),
+    el('label', {}, el('span', { text: 'Modelo de relieve local' }), depthModel),
+    el('label', {}, el('span', { text: 'Python del modelo de relieve' }), depthPython)],
     buttons: [{ label: 'Cancelar', value: null }, { label: 'Guardar', value: 'ok', kind: 'primary' }] });
   if (!r) return;
   try {
-    await call('settings_set', { changes: { library_dirs: dirs.value.split('\n').map((x) => x.trim()).filter(Boolean), voxel_mm: +voxel.value, shell_mm: +shell.value, blender: blender.value.trim() } });
+    await call('settings_set', { changes: { library_dirs: dirs.value.split('\n').map((x) => x.trim()).filter(Boolean),
+      voxel_mm: +voxel.value, shell_mm: +shell.value, blender: blender.value.trim(),
+      depth_model: depthModel.value.trim(), depth_python: depthPython.value.trim() } });
     loadLibrary(true);
   } catch (err) { fail(err); }
 }

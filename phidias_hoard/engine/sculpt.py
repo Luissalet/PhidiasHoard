@@ -122,7 +122,7 @@ def find_ground(P: np.ndarray, F: np.ndarray, cell: float, seed: int = 7) -> np.
 
 
 def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSettings,
-           progress: Optional[Callable[[str, float], None]] = None) -> Sculpted:
+           progress: Optional[Callable[[str, float], None]] = None, *, inferred: Optional[dict[int, np.ndarray]] = None) -> Sculpted:
     say = progress or (lambda stage, frac: None)
     ext = scene.extents
     scale = settings.size_mm / max(float(ext.max()), 1e-9)
@@ -164,7 +164,12 @@ def sculpt(scene: Scene, recipes: dict[str, MaterialRecipe], settings: SculptSet
             slopes[i] = (sx, sy, -1.0 if r.invert else 1.0)
             maps.append(None); pyramids.append(surface.SlopeDetail(sx, sy)); depth[i] = r.depth_mm
             continue
-        h = heights.height_map(mat.albedo, mat.normal, r.recipe, invert=r.invert, smooth=r.smooth, atlas=mat.atlas)
+        if r.recipe == "depth":
+            if inferred is None or i not in inferred:
+                raise ValueError(f"Falta el mapa de relieve por modelo para {mat.name}.")
+            h = -inferred[i] if r.invert else inferred[i]
+        else:
+            h = heights.height_map(mat.albedo, mat.normal, r.recipe, invert=r.invert, smooth=r.smooth, atlas=mat.atlas)
         if float(np.abs(h).max()) < 1e-4:
             maps.append(None); pyramids.append(None)
             continue

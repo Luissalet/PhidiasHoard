@@ -27,6 +27,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "plinth": "none",            # none, rect, round
     "preview_faces": 1_500_000,  # the 3-D view gets at most this many triangles
     "blender": "",               # path of blender.exe; empty: found by itself
+    "depth_model": "",           # local Transformers depth checkpoint
+    "depth_python": "",          # optional Python with Torch and Transformers
     "voxel_mm": 0.2,             # closing a mesh with Blender: voxel size
     "shell_mm": 1.2,             # closing a mesh with Blender: thickness given to loose sheets
     "llm_url": "",               # empty: the family's vision model through Hoard Link; else an OpenAI-compatible URL
@@ -134,6 +136,8 @@ def normalize(data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("plinth must be none, rect or round")
     data["preview_faces"] = _clamp(data["preview_faces"], 50_000, 20_000_000, int)
     data["blender"] = str(data.get("blender") or "").strip()
+    data["depth_model"] = str(data.get("depth_model") or "").strip()
+    data["depth_python"] = str(data.get("depth_python") or "").strip()
     data["voxel_mm"] = _clamp(data["voxel_mm"], 0.05, 5)
     data["shell_mm"] = _clamp(data["shell_mm"], 0, 20)
     data["export_dir"] = str(data.get("export_dir") or "").strip()

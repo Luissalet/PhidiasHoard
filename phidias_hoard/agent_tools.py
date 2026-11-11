@@ -23,7 +23,7 @@ Flow: library_scan lists the game models in the user's folders; project_create o
 Recipes: normal (relief from the normal map, when there is one: the best source), relief (dark lines carved plus soft bumps from light and shade), lines (only what the texture draws darker: joints, cracks, flutes), steps (a ramp whose texture draws steps becomes real steps: flat treads and risers, as many as the texture draws or the number given in steps), flat (leave the surface as it is: water, glass, plain colours), drop (remove it: shadow planes, flames, glows, sky), auto. depth_mm is how deep the relief goes at print size (0.3-1.0 reads well on a 150 mm model). invert swaps carved and raised. enrich adds sculpted detail the texture does not hold (rock, cracks, cobble, bricks, planks, tiles, bark, ripples, flutes, carved_wood, scales, moss) at a real size in millimetres, on top of any recipe. direct_start hands the whole decision to the vision model, which sculpts, looks and redoes. cutout cuts away what the texture leaves see-through (fences, railings, leaves, tree cards) and gives the rest thickness (sheet_mm).
 The ground of the scene (faces looking up with nothing below) is closed into a solid block down to a base so it prints without supports under the terrain."""
 
-RECIPE = Literal["auto", "normal", "lines", "relief", "steps", "flat", "drop"]
+RECIPE = Literal["auto", "normal", "lines", "relief", "depth", "steps", "flat", "drop"]
 
 
 def _d(first: str, detail: str = "", synonyms: str = "") -> str:
@@ -218,7 +218,7 @@ TOOLS: list[Tool] = [
     Tool("project_set", _d("Change a project's name, print size, detail, triangle budget, ground block or plinth.", synonyms="tamaño, detalle, peana"),
          SetArgs, ann(draft_safe=True, idempotent=True), _set),
     Tool("material_look", _d("See a material: its texture, its normal map and the height map its recipe would carve (a picture).",
-                             synonyms="ver material, mapa de alturas"), MaterialLookArgs, ann(read_only=True), _material_look, timeout_s=60, capped=False),
+                             synonyms="ver material, mapa de alturas"), MaterialLookArgs, ann(read_only=True), _material_look, timeout_s=300, capped=False),
     Tool("material_set", _d("Change the recipe, depth, inversion or smoothing of one or more materials.", synonyms="receta, profundidad, relieve"),
          MaterialSetArgs, ann(draft_safe=True, idempotent=True), _material_set),
     Tool("sculpt_start", _d("Sculpt the project in the background with its current recipes and settings. Returns a job id for job_status.",
