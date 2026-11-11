@@ -84,7 +84,7 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   stairs, cut-outs with thickness, ground block and plinth. Result: STL in millimetres, a mesh for the 3D view, a
   picture, measures, triangle counts and open-edge count.
 - Fuse the sculpt into one watertight solid with Blender (`close_start`): thickness for loose sheets, voxel remesh,
-  open edges counted afterwards (`watertight`).
+  sealed cavities filled by default (`fill_interior`, `cavities_filled` in the result) and open edges counted afterwards.
 - Look at any result (`model_look`): `before`, `sculpt` or `closed`; named views or any yaw/pitch; `region`
   `[x, y, z, radius]` in print millimetres; `compare` puts the original next to it.
 - Export (`result_export`): the STL into a `Phidias` folder next to the source model, or the folder given.
@@ -104,7 +104,7 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - Invent relief a texture does not hold: plain colours stay flat; a baked atlas without normal maps gives coarser
   relief than the original textures would.
 - Turn foliage cards into volumes (they stay sheets with thickness) or rebuild the inside of buildings.
-- Fill enclosed hollow spaces in the watertight solid, or keep detail finer than its voxel size there.
+- Keep detail finer than the voxel size in the watertight solid.
 - Recognise stairs by shape: the steps recipe is chosen by material name, by the model or by hand.
 - Direct a sculpt without a vision model reachable, or cancel a direction half way.
 - Split a model into parts for a small printer, add supports or slice.

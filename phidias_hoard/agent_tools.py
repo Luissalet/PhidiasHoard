@@ -43,6 +43,10 @@ class ProjectId(BaseModel):
     project_id: str = Field(..., min_length=1, max_length=64)
 
 
+class CloseArgs(ProjectId):
+    fill_interior: bool = Field(True, description="Fill sealed cavities remaining after remeshing.")
+
+
 class ScanArgs(BaseModel):
     refresh: bool = Field(False, description="Walk the folders again instead of using the last listing.")
     query: str = Field("", max_length=120, description="Only entries whose name, group or path contains this text.")
@@ -231,7 +235,7 @@ TOOLS: list[Tool] = [
          DirectArgs, ann(draft_safe=True), lambda s, a: s.start_direct(a.project_id, a.rounds, a.wish)),
     Tool("close_start", _d("Fuse the sculpt into one watertight solid with Blender (thickens loose sheets, voxel remesh). Returns a job id.",
                            "Detail finer than the voxel size (setting voxel_mm) is lost; the sculpt stays available.", "cerrar malla, estanco, manifold"),
-         ProjectId, ann(draft_safe=True), lambda s, a: s.start_close(a.project_id)),
+         CloseArgs, ann(draft_safe=True), lambda s, a: s.start_close(a.project_id, a.fill_interior)),
     Tool("job_status", _d("State of a job: queued, running (stage and progress), done (with result), cancelled or error."), JobId, ann(read_only=True),
          lambda s, a: s.job(a.job_id)),
     Tool("job_cancel", _d("Cancel a queued or running sculpt or directed sculpt. A running job stops at its next checkpoint and keeps the last completed sculpt."),

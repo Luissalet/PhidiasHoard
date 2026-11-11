@@ -14,6 +14,31 @@ from phidias_hoard.engine import sculpt as S
 from phidias_hoard.engine.refine import refine
 
 
+def test_fill_cavities_keeps_open_tunnel_and_separate_solid():
+    from phidias_hoard.engine.finish import fill_cavities
+
+    cube = np.array([[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+                     [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]], dtype=float)
+    faces = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+                      [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]], dtype=np.int32)
+    tunnel = []
+    for i in range(4):
+        j = (i + 1) % 4
+        tunnel += [(i, j, j+4, i+4), (i+8, i+12, j+12, j+8),
+                   (i, i+8, j+8, j), (i+4, j+4, j+12, i+12)]
+    tunnel = np.array(tunnel, dtype=np.int32)
+    tunnel_f = np.concatenate([tunnel[:, [0, 1, 2]], tunnel[:, [0, 2, 3]]])
+    tunnel_p = np.concatenate([cube * [6, 6, 2], cube * [3, 3, 2]]) + [30, 0, 0]
+    P = np.concatenate([cube * 8, cube * 5, cube * 2, cube * 2 + [16, 0, 0], tunnel_p])
+    F = np.concatenate([faces, faces[:, ::-1] + 8, faces + 16, faces + 24, tunnel_f + 32])
+    points, triangles, count = fill_cavities(P, F)
+    assert count == 1 and S.open_edges(triangles, len(points)) == 0
+    assert len(triangles) == 2 * len(faces) + len(tunnel_f)
+    assert not (np.abs(points) < 6).all(axis=1).any()
+    assert (points[:, 0] == 18).any()
+    assert np.array_equal(points[triangles[-len(tunnel_f):]], tunnel_p[tunnel_f])
+
+
 def brick_texture(path, size=32):
     """Light bricks with dark joints every 8 pixels."""
     a = np.full((size, size, 3), 200, np.uint8)
