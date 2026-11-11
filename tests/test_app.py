@@ -139,6 +139,16 @@ def test_project_from_zip_to_stl(client, tmp_path):
     out = call(client, "result_export", project_id=pid, folder=str(tmp_path / "stl"))
     assert out["path"].endswith("60mm.stl") and (tmp_path / "stl").is_dir()
     assert call(client, "project_list")["projects"][0]["results"]["sculpt"]["triangles"] == res["triangles_total"]
+    import io
+    import xml.etree.ElementTree as ET
+
+    response = client.get(f"/api/projects/{pid}/print/sculpt.3mf")
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as package:
+        model = ET.fromstring(package.read("3D/3dmodel.model"))
+    bases = {base.attrib["name"] for base in model.findall(".//{*}base")}
+    assigned = {face.attrib.get("p1") for face in model.findall(".//{*}triangle")}
+    assert {"brick", "grass"} <= bases and len(assigned) >= 2
     call(client, "project_delete", project_id=pid)
     assert call(client, "project_list")["projects"] == []
 

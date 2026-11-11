@@ -71,6 +71,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 - **3D view and pictures**: original, sculpt and closed solid in the browser; pictures shaded from the geometry
   itself, from any angle, zoomed on a spot, or next to the original.
 - **STL** in millimetres with the base at z = 0, downloaded or saved in a `Phidias` folder next to the source model.
+- **Print files**: export a 3MF with the sculpt's material assignments. Split a watertight solid on an X, Y or Z
+  plane, optionally with mating pegs. Download both STL parts or a 3MF with the two parts laid out separately.
 
 Part of the Hoard family (see `faustus-plugin.json`): the same tools the buttons use are available to assistants
 through MCP (`mcp_server.py`), with pictures of materials and models so they can judge the relief they ask for.

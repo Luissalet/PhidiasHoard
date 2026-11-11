@@ -142,8 +142,18 @@ class LookArgs(ProjectId):
 
 
 class ExportArgs(ProjectId):
-    result: Optional[Literal["remodel", "sculpt", "closed"]] = Field(None, description="Default: the remodel (.blend and .obj in quads) when there is one, else the closed solid, else the sculpt.")
+    result: Optional[Literal["remodel", "sculpt", "closed", "split"]] = Field(None, description="Default: remodel, then closed solid, then sculpt.")
     folder: str = Field("", max_length=1000, description="Where to write it; default: a Phidias folder next to the source model.")
+    format: Literal["stl", "3mf"] = Field("stl", description="3MF keeps sculpt material assignments or all split parts.")
+
+
+class SplitArgs(ProjectId):
+    axis: Literal["x", "y", "z"] = "x"
+    position_mm: Optional[float] = Field(None, gt=0, description="Distance along the axis from the minimum extent, or the midpoint.")
+    pins: int = Field(2, ge=0, le=2)
+    diameter_mm: float = Field(4, ge=1, le=20)
+    depth_mm: float = Field(3, ge=0.5, le=15)
+    clearance_mm: float = Field(0.25, ge=0, le=2, description="Radial and depth clearance between each peg and recess.")
 
 
 class JobId(BaseModel):
@@ -240,6 +250,9 @@ TOOLS: list[Tool] = [
     Tool("close_start", _d("Fuse the sculpt into one watertight solid with Blender (thickens loose sheets, voxel remesh). Returns a job id.",
                            "Detail finer than the voxel size (setting voxel_mm) is lost; the sculpt stays available.", "cerrar malla, estanco, manifold"),
          CloseArgs, ann(draft_safe=True), lambda s, a: s.start_close(a.project_id, a.fill_interior)),
+    Tool("split_start", _d("Cut the watertight solid into two printable parts. Set the plane and optional mating pegs. Returns a job id.",
+                           synonyms="partir malla, dividir para imprimir, encajes"),
+         SplitArgs, ann(draft_safe=True), lambda s, a: s.start_split(a.project_id, a.model_dump(exclude={"project_id"}))),
     Tool("job_status", _d("State of a job: queued, running (stage and progress), done (with result), cancelled or error."), JobId, ann(read_only=True),
          lambda s, a: s.job(a.job_id)),
     Tool("job_cancel", _d("Cancel a queued or running sculpt or directed sculpt. A running job stops at its next checkpoint and keeps the last completed sculpt."),
@@ -248,7 +261,8 @@ TOOLS: list[Tool] = [
                           "The picture is shaded from the geometry itself, so it shows what will be printed.", "ver modelo, render, comparar"),
          LookArgs, ann(read_only=True), _look, timeout_s=180, capped=False),
     Tool("result_export", _d("Write the STL (millimetres, base at z = 0) to a folder; by default a Phidias folder next to the source model.",
-                             synonyms="exportar, STL, guardar"), ExportArgs, ann(draft_safe=True), lambda s, a: s.export_result(a.project_id, a.result or "", a.folder),
+                             synonyms="exportar, STL, 3MF, guardar"), ExportArgs, ann(draft_safe=True),
+         lambda s, a: s.export_result(a.project_id, a.result or "", a.folder, a.format),
          timeout_s=300),
     Tool("project_delete", _d("Delete a project and its results (the source model is not touched)."), ProjectId, ann(destructive=True),
          lambda s, a: s.delete_project(a.project_id)),

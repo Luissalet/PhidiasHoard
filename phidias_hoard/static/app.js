@@ -237,6 +237,16 @@ function refreshButtons() {
   $('btn-download-obj').hidden = !rm;
   $('btn-sculpt').textContent = r.sculpt ? 'Volver a esculpir' : 'Esculpir';
   $('btn-close').disabled = !p || busy || !r.sculpt;
+  $('print-card').hidden = !p || !r.sculpt;
+  $('btn-split').disabled = busy || !r.closed?.watertight;
+  $('print-pieces').hidden = !r.split;
+  if (p && r.sculpt) {
+    const url = `/api/projects/${p.id}/print/`;
+    $('download-color-3mf').href = url + 'sculpt.3mf';
+    $('download-piece-a').href = url + 'piece-a.stl';
+    $('download-piece-b').href = url + 'piece-b.stl';
+    $('download-pieces-3mf').href = url + 'pieces.3mf';
+  }
   $('btn-download').disabled = !p || !(rm ? r.remodel : r.sculpt);
   $('btn-export').disabled = !p || !(r.sculpt || r.remodel);
 }
@@ -440,7 +450,8 @@ function watchJob(id) {
   const tick = async () => {
     let j;
     try { j = await call('job_status', { job_id: id }); } catch (err) { clearInterval(state.poll); state.poll = null; $('job').hidden = true; refreshButtons(); return; }
-    $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : (j.kind === 'direct' ? 'Dirigiendo' : (j.kind.startsWith('remodel') ? 'Remodelando' : 'Esculpiendo'))} · ${j.stage}`;
+    const names = { close: 'Cerrando', split: 'Partiendo', direct: 'Dirigiendo', remodel: 'Remodelando', remodel_direct: 'Remodelando', sculpt: 'Esculpiendo' };
+    $('job-stage').textContent = `${names[j.kind]} · ${j.stage}`;
     $('job-fill').style.width = `${Math.round(j.progress * 100)}%`;
     cancel.hidden = !j.cancellable && !j.cancel_requested;
     cancel.disabled = cancelling || !j.cancellable;
@@ -449,10 +460,11 @@ function watchJob(id) {
       clearInterval(state.poll); state.poll = null; $('job').hidden = true;
       if (j.state === 'error') toast(j.error, 'err', 12000);
       else if (j.state === 'cancelled') toast('Trabajo cancelado.');
+      else if (j.kind === 'split') toast('Las piezas están listas para descargar.', 'ok');
       else toast(j.kind === 'close' ? 'Sólido cerrado listo.' : (j.kind.startsWith('remodel') ? 'Remodelado listo.' : 'Esculpido listo.'), 'ok');
       if (state.project && state.project.id === j.project_id) {
         const p = await call('project_get', { project_id: j.project_id });
-        if (j.state === 'done') state.which = j.kind === 'close' ? 'closed' : (j.kind.startsWith('remodel') ? 'remodel' : 'sculpt');
+        if (j.state === 'done' && j.kind !== 'split') state.which = j.kind === 'close' ? 'closed' : (j.kind.startsWith('remodel') ? 'remodel' : 'sculpt');
         setProject(p, true);
       }
       loadProjects();
@@ -469,6 +481,22 @@ async function startJob(tool, options = {}) {
     const j = await call(tool, { project_id: state.project.id, ...options });
     watchJob(j.id);
   } catch (err) { fail(err); }
+}
+
+async function startSplit() {
+  const axis = el('select', { class: 'input' }, ['X', 'Y', 'Z'].map((a) => el('option', { value: a.toLowerCase(), text: a })));
+  const number = (value, min, max, step = 0.1) => el('input', { class: 'input', type: 'number', value, min, max, step });
+  const position = number('', 0.1, 2000), pins = number(2, 0, 2, 1), diameter = number(4, 1, 20);
+  const depth = number(3, 0.5, 15), clearance = number(0.25, 0, 2, 0.05);
+  position.placeholder = 'Mitad';
+  const field = (text, input) => el('label', { class: 'field' }, el('span', { text }), input);
+  const ok = await modal({ title: 'Partir sólido', body: [
+    field('Eje del corte', axis), field('Distancia desde el borde (mm)', position),
+    field('Número de encajes', pins), field('Diámetro del encaje (mm)', diameter),
+    field('Profundidad del encaje (mm)', depth), field('Holgura (mm)', clearance)],
+    buttons: [{ label: 'Cancelar', value: null }, { label: 'Partir', value: true, kind: 'primary' }] });
+  if (ok) await startJob('split_start', { axis: axis.value, position_mm: position.value ? +position.value : null, pins: +pins.value,
+    diameter_mm: +diameter.value, depth_mm: +depth.value, clearance_mm: +clearance.value });
 }
 
 // ------------------------------------------------------------------ settings
@@ -518,6 +546,7 @@ $('btn-remodel-ai').addEventListener('click', startRemodelDirect);
 $('wire').addEventListener('change', (ev) => view.showEdges(ev.target.checked));
 $('btn-download-obj').addEventListener('click', () => { window.location.href = `/api/projects/${state.project.id}/download/remodel.obj`; });
 $('btn-close').addEventListener('click', () => startJob('close_start', { fill_interior: $('close-fill-interior').checked }));
+$('btn-split').addEventListener('click', startSplit);
 $('btn-download').addEventListener('click', () => {
   if (state.which === 'remodel') { window.location.href = `/api/projects/${state.project.id}/download/remodel.blend`; return; }
   const which = state.which === 'closed' ? 'closed' : 'sculpt';
