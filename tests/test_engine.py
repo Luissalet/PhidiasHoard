@@ -72,6 +72,32 @@ def test_directional_detail_follows_a_tilted_shaft_and_roof():
         assert np.ptp(patterns.pattern(name)) > 0.4
 
 
+def test_texture_counts_combine_image_periods_with_uv_repeats():
+    from phidias_hoard.remodel import pieces, texture_counts
+
+    x = np.arange(120) / 120
+    light = np.uint8(128 + 45 * np.cos(2 * np.pi * 3 * x) + 33 * np.cos(2 * np.pi * 12 * x))
+    texture = np.broadcast_to(light[None, :, None], (40, 120, 3)).copy()
+    counts = texture_counts.texture_periods(texture)
+    assert counts == ((3, 12), (0, 0))
+    assert texture_counts.texture_periods(np.full_like(texture, 120)) == ((0, 0), (0, 0))
+
+    tri = np.array([[[0, 0, 0], [30, 0, 0], [30, 0, 12]]])
+    uv = np.array([[[0, 0], [2, 0], [2, 1]]])
+    wall = texture_counts.estimate(tri, uv, np.array([0]), np.array([[0, -1, 0]]), np.array([180]),
+                                   [30, 15, 12], lambda _: counts, roof=False)
+    assert wall == {"bays_x": 6, "bars": 4}
+    piece = {"dropped": False, "fits": {"rect": True, "round": False}, "size": [30, 15, 12],
+             "profile": [[0, 15, 7.5], [12, 15, 7.5]], "texture_counts": wall}
+    kind, params = pieces.guess(piece, 30)
+    assert kind == "body" and params == {"bays_x": 6, "bays_y": 2, "bars": 4, "zones": ["lattice"]}
+
+    tri[0, 2, 1] = 9
+    roof = texture_counts.estimate(tri, uv, np.array([0]), np.array([[0, -0.8, 0.6]]), np.array([180]),
+                                   [30, 15, 12], lambda _: counts, roof=True)
+    assert roof == {"tiles": 24}
+
+
 def write_wall(tmp_path, with_shadow=True):
     """A floor, a wall standing on it and (optionally) a shadow plane, as an OBJ with its MTL and textures."""
     brick_texture(tmp_path / "brick.png")

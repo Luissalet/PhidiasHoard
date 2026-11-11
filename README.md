@@ -26,7 +26,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   surface of small quads that carries what their texture draws: feathers, eyes, folds. A piece is only offered the builders its shape really fits, so sloping ground is never turned into a
   block or a roof. The family's vision model can choose what each type is and its parameters, look at the result
   next to the original and correct it ("Remodelar con IA"). Pieces of the same shape are one type: you choose what each type
-  is and its parameters (tiles per side, bays, bars, segments). The result is a `.blend` with one object per piece
+  is and its parameters (tiles per side, bays, bars, segments). When a tiled texture has a clear repeat, Phidias
+  uses its mapping to suggest how many tiles, bays and bars to build. The result is a `.blend` with one object per piece
   and the bevels as live modifiers, and an OBJ in quads. The 3D view and the pictures draw the mesh's own edges.
 - **Library**: point it at the folders where you keep game models. It lists OBJ (with its MTL and textures),
   Collada (`.dae`), GLB, glTF, FBX and `.blend` files, including those in ZIP archives, grouped by folder. A scene that comes in several formats
