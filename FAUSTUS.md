@@ -1,6 +1,6 @@
 # Phidias's Hoard — what it can and cannot do
 
-App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (20 tools; `material_look` and
+App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (`material_look` and
 `model_look` return MCP images). Connector preset: its own `faustus-plugin.json`.
 
 ## Can
@@ -22,7 +22,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   is completed by symmetry (`completed`). `polar` = sides, phase, radii, hole; `sections` = sweep stations; `roof` =
   measured eaves (lift, level stretch, fascia, slope line) used by the roof builder unless concave or corner_lift
   are given. `tiled` is only guessed for a piece that sheds outward, stands above the ground and has a tiling
-  texture.
+  texture. When the mapping and texture have clear horizontal repeats, the proposed roof and wall parameters
+  use them to count tiles, bays and lattice bars. Saved choices take precedence.
 - Texture into topology: `heights.texel_levels` turns each texture into a few height steps per texel; `keep`,
   `tiled`, `sweep` and two-level `block` pieces replace every quad whose UVs lie square on the texture with a quad
   grid cut where the height changes (cuts doubled for a sloped wall, texels merged below 0.22 mm, face borders stay
@@ -88,7 +89,7 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   rounded, not a new sculpt: parts the game made as flat sheets (wings) stay sheets, and nothing is added that the
   shape or the texture does not hold.
 - Model a texture into pieces rebuilt by `roof`, `body`, `lathe` and `stairs`. The steps come from how light each
-  texel is, so painted shading reads as relief. Tile counts, bays and bars are still parameters, not read.
+  texel is, so painted shading reads as relief.
 - Complete what the game culled other than by the symmetry of a square piece.
 
 - Read FBX, `.blend`, `.smd` or engine-native formats (they have to be converted to one of the four formats).

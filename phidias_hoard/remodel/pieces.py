@@ -11,6 +11,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from ..engine.meshio import Scene
+from . import texture_counts
 
 KINDS = ("roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "organic", "keep", "drop")
 
@@ -24,6 +25,14 @@ def split(scene: Scene, scale: float, dropped: set[str]) -> list[dict[str, Any]]
     piece_of = label[F[:, 0]]
     names = [m.name for m in scene.materials]
     areas = scene.face_areas() * scale * scale
+    periodicity = {}
+
+    def periods(index: int):
+        if index not in periodicity:
+            mat = scene.materials[index]
+            periodicity[index] = texture_counts.texture_periods(mat.albedo) if mat.albedo is not None and not mat.atlas else None
+        return periodicity[index]
+
     out = []
     for k in np.unique(piece_of):
         sel = piece_of == k
@@ -55,6 +64,13 @@ def split(scene: Scene, scale: float, dropped: set[str]) -> list[dict[str, Any]]
         nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
         area = 0.5 * np.linalg.norm(nrm, axis=1)
         steep = np.abs(nrm[:, 2]) / np.maximum(2 * area, 1e-12)
+        ids = scene.M[sel]
+        uv = scene.UV[sel]
+        normal = nrm / np.maximum(2 * area[:, None], 1e-12)
+        roof_counts = texture_counts.estimate(tri, uv, ids, normal, area, size, periods, roof=True)
+        wall_counts = texture_counts.estimate(tri, uv, ids, normal, area, size, periods, roof=False)
+        if roof_counts or wall_counts:
+            extra["texture_counts"] = {**roof_counts, **wall_counts}
         sloped = (steep > 0.2) & (steep < 0.98)
         by_mat = {names[i]: float(area[sloped & (scene.M[sel] == i)].sum()) for i in np.unique(scene.M[sel])}
         best = max(by_mat, key=by_mat.get) if by_mat else ""
@@ -308,7 +324,19 @@ def allowed(piece: dict[str, Any]) -> list[str]:
 
 
 def guess(piece: dict[str, Any], size_mm: float) -> tuple[str, dict[str, Any]]:
-    """What a piece is, from its shape alone."""
+    """Choose a builder from the shape and initialise its parameters."""
+    kind, params = _guess_shape(piece, size_mm)
+    counts = piece.get("texture_counts", {})
+    if kind in ("roof", "tiled") and "tiles" in counts:
+        params["tiles"] = counts["tiles"]
+    if kind == "body":
+        params.update({key: counts[key] for key in ("bays_x", "bays_y", "bars") if key in counts})
+        if "bars" in counts:
+            params["zones"] = ["lattice"] * len(params.get("zones", []))
+    return kind, params
+
+
+def _guess_shape(piece: dict[str, Any], size_mm: float) -> tuple[str, dict[str, Any]]:
     if piece["dropped"]:
         return "drop", {}
     prof = piece["profile"]

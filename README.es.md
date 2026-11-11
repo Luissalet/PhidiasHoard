@@ -24,7 +24,8 @@ milímetros.
   que un terreno en pendiente nunca acaba convertido en bloque ni en tejado. El modelo de visión de la familia puede
   elegir qué es cada tipo y sus parámetros, mirar el resultado junto al original y corregirlo («Remodelar con IA»). Las piezas
   con la misma forma son un tipo: eliges qué es cada tipo y sus parámetros (tejas por lado, vanos, barrotes,
-  segmentos). El resultado es un `.blend` con un objeto por pieza y los biseles como modificadores vivos, y un OBJ
+  segmentos). Si la textura tiene una repetición clara, Phidias propone el recuento de tejas, vanos y barrotes a
+  partir de su mapeado en la pieza. El resultado es un `.blend` con un objeto por pieza y biseles vivos, y un OBJ
   en quads. La vista 3D y las imágenes dibujan las aristas de la malla.
 - **Biblioteca**: dile en qué carpetas guardas los modelos. Lista cada OBJ (con su MTL y texturas), Collada (`.dae`),
   GLB y glTF que encuentra, también dentro de zips, agrupados por carpeta. Un escenario que viene en varios formatos
