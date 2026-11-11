@@ -19,7 +19,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   own line, straight or curved; stairs get real steps; anything else is kept as the original piece cleaned into
   quads. A roof whose eaves are curved in the game model is rebuilt with that curve, measured, and whole even when
   the game left out the sides nobody sees; a roof with more to it than four slopes (a platform, a hatch) keeps its
-  shape and gets the tiles laid down its slopes. What the textures draw (panels, frames, bands, joints) is modelled
+  shape and gets the tiles laid down its slopes. Retained pieces and tiled roofs can complete a missing planar outer
+  side when its border spans the piece. What the textures draw (panels, frames, bands, joints) is modelled
   into the faces: each quad becomes a grid that follows the texels where the height changes, raised and sunk in
   steps; on triangles and on textures that sit turned on the face it goes in on a fine grid of quads instead
   (crowns, brackets, ornaments). Figures the game made of flat facets (statues, animals) are rounded into a soft

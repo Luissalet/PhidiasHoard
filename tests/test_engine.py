@@ -98,6 +98,28 @@ def test_texture_counts_combine_image_periods_with_uv_repeats():
     assert roof == {"tiles": 24}
 
 
+def test_remodel_completes_missing_back_but_keeps_window(tmp_path):
+    from phidias_hoard.engine.finish import find_blender
+    from phidias_hoard.remodel import build
+
+    blender = find_blender()
+    if not (blender or build.has_bpy()):
+        pytest.skip("Blender is not installed")
+    pts = [[-5, -4, 0], [5, -4, 0], [5, 4, 0], [-5, 4, 0], [-5, -4, 6], [5, -4, 6], [5, 4, 6], [-5, 4, 6],
+           [-1, -4, 2], [1, -4, 2], [1, -4, 4], [-1, -4, 4]]
+    quads = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 4, 7, 3), (1, 2, 6, 5),
+             (0, 1, 9, 8), (1, 5, 10, 9), (5, 4, 11, 10), (4, 0, 8, 11)]
+    faces = [[a, b, c] for a, b, c, _ in quads] + [[a, c, d] for a, _, c, d in quads]
+    base = {"id": 1, "name": "Window", "center": [0, 0, 0], "size": [10, 8, 6], "points": pts, "triangles": faces}
+    for kind, cap, expected in (("keep", 1, 4), ("tiled", 1, 4), ("keep", 0, 8)):
+        out = tmp_path / f"{kind}-{cap}"
+        piece = {**base, "kind": kind, "params": {"cap": cap, "bevel": 0}}
+        stats = build.run({"pieces": [piece]}, out, blender, timeout_s=60)
+        assert stats["pieces"][0]["completed_sides"] == cap
+        scene = meshio.load_model(out / "remodel.obj")
+        assert S.open_edges(scene.F, len(scene.P)) == expected
+
+
 def write_wall(tmp_path, with_shadow=True):
     """A floor, a wall standing on it and (optionally) a shadow plane, as an OBJ with its MTL and textures."""
     brick_texture(tmp_path / "brick.png")

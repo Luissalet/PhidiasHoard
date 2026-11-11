@@ -11,7 +11,7 @@ const PATTERNS = [['', 'Sin detalle añadido'], ['rock', 'Roca'], ['cracks', 'Gr
   ['flutes', 'Estrías de columna'], ['carved_wood', 'Madera tallada'], ['scales', 'Escamas'], ['moss', 'Musgo']];
 const WHY = { before: 'Original', remodel: 'Remodelado', sculpt: 'Esculpido', closed: 'Sólido cerrado' };
 const KINDS = [['roof', 'Tejado'], ['tiled', 'Tejado tal cual, con tejas'], ['sweep', 'Viga'], ['body', 'Cuerpo con pilares'], ['block', 'Bloque'], ['lathe', 'Torneado'], ['stairs', 'Escalera'], ['organic', 'Figura suavizada'], ['keep', 'Original limpio'], ['drop', 'Quitar']];
-const PARAMS = { roof: [['tiles', 'Tejas por lado', 14], ['rows', 'Tramos', 6], ['corner_lift', 'Alero levantado', 0.35], ['concave', 'Curva', 1.45]], body: [['bays_x', 'Vanos frente', 3], ['bays_y', 'Vanos lado', 3], ['bars', 'Barrotes', 5]], block: [['bevel', 'Bisel (mm)', 0.25], ['emboss', 'Dibujo en relieve (0/1)', 1]], lathe: [['segments', 'Segmentos', 24], ['sides', 'Lados (0 redondo)', 0], ['flutes', 'Estrías', 0]], tiled: [['tiles', 'Tejas a lo ancho', 14], ['emboss', 'Dibujo en relieve (0/1)', 1]], sweep: [['emboss', 'Dibujo en relieve (0/1)', 1]], stairs: [['steps', 'Peldaños', 5]], organic: [['level', 'Subdivisiones (1-4)', 3], ['emboss', 'Dibujo en relieve (0/1)', 1]], keep: [['bevel', 'Bisel (mm)', 0.15], ['emboss', 'Dibujo en relieve (0/1)', 1]], drop: [] };
+const PARAMS = { roof: [['tiles', 'Tejas por lado', 14], ['rows', 'Tramos', 6], ['corner_lift', 'Alero levantado', 0.35], ['concave', 'Curva', 1.45]], body: [['bays_x', 'Vanos frente', 3], ['bays_y', 'Vanos lado', 3], ['bars', 'Barrotes', 5]], block: [['bevel', 'Bisel (mm)', 0.25], ['emboss', 'Dibujo en relieve (0/1)', 1]], lathe: [['segments', 'Segmentos', 24], ['sides', 'Lados (0 redondo)', 0], ['flutes', 'Estrías', 0]], tiled: [['tiles', 'Tejas a lo ancho', 14], ['emboss', 'Dibujo en relieve (0/1)', 1], ['cap', 'Completar lado ausente (0/1)', 1]], sweep: [['emboss', 'Dibujo en relieve (0/1)', 1]], stairs: [['steps', 'Peldaños', 5]], organic: [['level', 'Subdivisiones (1-4)', 3], ['emboss', 'Dibujo en relieve (0/1)', 1]], keep: [['bevel', 'Bisel (mm)', 0.15], ['emboss', 'Dibujo en relieve (0/1)', 1], ['cap', 'Completar lado ausente (0/1)', 1]], drop: [] };
 
 // ------------------------------------------------------------------ 3-D view
 const view = (() => {
@@ -246,6 +246,7 @@ function drawResult() {
     const m = p.results.remodel;
     bar.append(el('span', {}, 'Remodelado: ', el('b', { text: `${nf.format(m.quads)} quads` }), ` · ${nf.format(m.tris)} triángulos · ${nf.format(m.ngons)} n-gons · ${nf.format(m.verts)} vértices`));
     bar.append(el('span', { text: `${m.objects} objetos de ${m.pieces} piezas` }));
+    if (m.completed_sides) bar.append(el('span', { text: m.completed_sides === 1 ? 'Un lado completado' : `${m.completed_sides} lados completados` }));
     bar.append(el('span', {}, 'Medidas: ', el('b', { text: `${m.size_mm.map((v) => v.toFixed(1)).join(' × ')} mm` })));
     bar.append(el('span', { text: `${m.seconds} s` }));
     return;

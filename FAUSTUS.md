@@ -25,7 +25,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   sides = prism with the piece's own corners and phase, a ring keeps its hole), `sweep` (box sections along the
   piece's long side, smooth = sections added on a curve), `tiled` (the piece kept, half-round tiles laid down the
   sloped faces of its tile material, cut where those faces end), `stairs` (steps, axis, flip), `keep` (original
-  welded, triangles joined to quads, bevel), `drop`. A piece whose builder fails falls back to `keep`.
+  welded, triangles joined to quads, bevel), `drop`. The `keep` and `tiled` builders complete broad planar outer
+  borders that look like a missing face. Set `cap: 0` to keep the original border. A piece whose builder fails falls back to `keep`.
 - Fit before build (`remodel/pieces.py`): each piece is measured in its own frame (tightest yaw) and gets `fits`
   {rect, round, shell, sweep, tiled}; `allowed` only lists builders whose shape it has. `rect` also needs every face
   on the loft of its outlines (ground with relief is not a block). A square piece missing the sides the game culled
@@ -100,7 +101,7 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   shape or the texture does not hold.
 - Model a texture into pieces rebuilt by `roof`, `body`, `lathe` and `stairs`. The steps come from how light each
   texel is, so painted shading reads as relief.
-- Complete what the game culled other than by the symmetry of a square piece.
+- Infer missing faces with an irregular border or where the remaining geometry does not identify an exterior side.
 
 - Read FBX, `.blend`, `.smd` or engine-native formats (they have to be converted to one of the four formats).
 - Invent relief a texture does not hold: plain colours stay flat; a baked atlas without normal maps gives coarser

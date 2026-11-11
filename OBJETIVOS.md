@@ -13,4 +13,3 @@
 - Roca y terreno en el remodelado: retopología en quads que conserve las aristas duras.
 - Figuras: dar grosor a las partes que el juego hace con láminas (alas) y unir sus partes en una sola superficie.
 - Dibujo de la textura en las piezas que construyen tejado, cuerpo y torneado.
-- Completar lo que el juego no trae (caras traseras) más allá de la simetría de una pieza cuadrada.

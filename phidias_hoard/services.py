@@ -483,6 +483,7 @@ class Services:
         for p in parts:
             kinds[p["kind"]] = kinds.get(p["kind"], 0) + 1
         info = {**total, "objects": len(stats["pieces"]), "pieces": len(parts), "kinds": kinds, "triangles_total": int(len(F)),
+                "completed_sides": sum(s.get("completed_sides", 0) for s in stats["pieces"]),
                 "open_edges": None, "size_mm": [round(float(v), 2) for v in (P.max(0) - P.min(0))] if len(P) else [0, 0, 0],
                 "file_bytes": (pdir / "remodel" / "remodel.obj").stat().st_size, "seconds": round(time.time() - t0, 1), "at": time.time(),
                 "log": stats["log"]}
