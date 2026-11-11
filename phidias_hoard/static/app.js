@@ -201,6 +201,10 @@ function setProject(p, keepView = false) {
   const s = p.settings;
   $('s-size').value = s.size_mm; $('s-edge').value = s.min_edge_mm; $('s-ground').checked = !!s.ground; $('s-base').value = s.base_mm;
   $('s-plinth').value = s.plinth || 'none';
+  $('plinth-detail').hidden = $('s-plinth').value === 'none';
+  $('s-plinth-name').value = s.plinth_name || '';
+  $('s-plinth-socket').value = s.plinth_socket_mm ?? 0;
+  $('s-plinth-depth').value = s.plinth_socket_depth_mm ?? 1.2;
   const faces = $('s-faces');
   if (![...faces.options].some((o) => +o.value === +s.max_faces)) faces.append(el('option', { value: s.max_faces, text: `${nf.format(s.max_faces)}` }));
   faces.value = s.max_faces;
@@ -322,8 +326,10 @@ async function startDirect() {
     el('p', { text: 'El modelo mira cada material, decide receta, profundidad, recortes y detalle añadido, esculpe una prueba, la mira junto al original y la rehace mientras no le convenza. Después hace el esculpido final. Sus decisiones sustituyen a las recetas actuales.' }), wish],
     buttons: [{ label: 'Cancelar', value: null }, { label: 'Empezar', value: 'ok', kind: 'primary' }] });
   if (!r) return;
-  clearTimeout(saveTimer);
-  try { watchJob((await call('direct_start', { project_id: state.project.id, wish: wish.value })).id); } catch (err) { fail(err); }
+  try {
+    await flushSettings();
+    watchJob((await call('direct_start', { project_id: state.project.id, wish: wish.value })).id);
+  } catch (err) { fail(err); }
 }
 
 function drawMaterials() {
@@ -385,20 +391,31 @@ async function openMaterial(name) {
   if (r) saveMaterial(name, { recipe });
 }
 
-let saveTimer = null;
+let saveTimer = null, settingsWrite = Promise.resolve(), pendingSettings = null;
 function saveSettings() {
+  const p = state.project;
+  if (!p) return;
+  $('plinth-detail').hidden = $('s-plinth').value === 'none';
+  pendingSettings = { project_id: p.id, size_mm: +$('s-size').value, min_edge_mm: +$('s-edge').value, max_faces: +$('s-faces').value,
+    ground: $('s-ground').checked, base_mm: +$('s-base').value, plinth: $('s-plinth').value, plinth_name: $('s-plinth-name').value,
+    plinth_socket_mm: +$('s-plinth-socket').value, plinth_socket_depth_mm: +$('s-plinth-depth').value || 1.2 };
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    const p = state.project;
-    if (!p) return;
-    try {
-      const before = p.settings.size_mm;
-      const np = await call('project_set', { project_id: p.id, size_mm: +$('s-size').value, min_edge_mm: +$('s-edge').value, max_faces: +$('s-faces').value,
-        ground: $('s-ground').checked, base_mm: +$('s-base').value, plinth: $('s-plinth').value });
-      state.project = np;
-      if (np.settings.size_mm !== before && state.which === 'before') loadMesh(true);
-    } catch (err) { fail(err); }
-  }, 350);
+  saveTimer = setTimeout(() => flushSettings().catch(fail), 350);
+}
+
+function flushSettings() {
+  if (!pendingSettings) return settingsWrite;
+  const args = pendingSettings;
+  pendingSettings = null;
+  clearTimeout(saveTimer);
+  settingsWrite = settingsWrite.catch(() => {}).then(async () => {
+    const np = await call('project_set', args);
+    if (state.project?.id !== np.id) return;
+    const before = state.project.settings.size_mm;
+    state.project = np;
+    if (np.settings.size_mm !== before && state.which === 'before') loadMesh(true);
+  });
+  return settingsWrite;
 }
 
 // ------------------------------------------------------------------ jobs
@@ -446,8 +463,8 @@ function watchJob(id) {
 }
 
 async function startJob(tool, options = {}) {
-  clearTimeout(saveTimer);
   try {
+    await flushSettings();
     const j = await call(tool, { project_id: state.project.id, ...options });
     watchJob(j.id);
   } catch (err) { fail(err); }
@@ -485,7 +502,7 @@ $('lib-search').addEventListener('input', drawLibrary);
 $('lib-refresh').addEventListener('click', () => loadLibrary(true));
 $('btn-settings').addEventListener('click', openSettings);
 $('btn-skills').addEventListener('click', () => window.open('/api/agent/skills/page', '_blank', 'noopener'));
-for (const id of ['s-size', 's-edge', 's-faces', 's-ground', 's-base', 's-plinth']) $(id).addEventListener('change', saveSettings);
+for (const id of ['s-size', 's-edge', 's-faces', 's-ground', 's-base', 's-plinth', 's-plinth-name', 's-plinth-socket', 's-plinth-depth']) $(id).addEventListener('change', saveSettings);
 for (const b of $('view-seg').children) b.addEventListener('click', () => { state.which = b.dataset.which; refreshButtons(); drawResult(); loadMesh(true); });
 $('btn-sculpt').addEventListener('click', () => startJob('sculpt_start'));
 $('btn-direct').addEventListener('click', startDirect);

@@ -81,7 +81,9 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   sculpt stays available.
   Model: the family's vision model through Hoard Link, or `llm_url`/`llm_model` in settings.
 - Print settings (`project_set`): `size_mm` (longest side), `min_edge_mm`, `tolerance_mm`, `max_faces`, `ground`,
-  `base_mm`, `plinth` (none, rect, round), `plinth_margin_mm`, `normal_cutoff_mm`, `sheet_mm`.
+  `base_mm`, `plinth` (none, rect, round), `plinth_margin_mm`, `plinth_name`, `plinth_socket_mm`,
+  `plinth_socket_depth_mm`, `normal_cutoff_mm`, `sheet_mm`. Blender cuts the inscription and circular recess
+  on a plinth extension outside the model's footprint.
 - Sculpt in the background (`sculpt_start`, `job_status`): adaptive refinement that never opens the mesh, triangle
   budget shared evenly (longest edges first), relief from height maps or from normal maps integrated on the mesh,
   stairs, cut-outs with thickness, ground block and plinth. Result: STL in millimetres, a mesh for the 3D view, a

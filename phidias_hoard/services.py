@@ -21,7 +21,7 @@ import numpy as np
 from . import __version__
 from .config import Config, Settings
 from . import director
-from .engine import export, finish, heights, meshio, patterns, preview, recipes
+from .engine import export, finish, heights, meshio, patterns, plinth_detail, preview, recipes
 from .llm import ModelClient
 from .remodel import build as remodel_build
 from .remodel import pieces as remodel_pieces
@@ -34,6 +34,7 @@ log = logging.getLogger("phidias")
 
 SKIP_DIRS = {"trabajo", "originales", "herramientas", "node_modules", ".git", "__pycache__", "phidias"}
 PROJECT_SETTINGS = ("size_mm", "min_edge_mm", "tolerance_mm", "max_faces", "ground", "base_mm", "plinth", "plinth_margin_mm",
+                    "plinth_name", "plinth_socket_mm", "plinth_socket_depth_mm",
                     "normal_cutoff_mm", "sheet_mm")
 RESULTS = ("sculpt", "closed", "remodel")
 CANCELLABLE_JOBS = {"sculpt", "direct"}
@@ -621,12 +622,21 @@ class Services:
         project = self.store.get(pid)
         scene = self.scene(pid)
         st = self._settings_of(project)
+        decorate = st.plinth != "none" and (st.plinth_name or st.plinth_socket_mm)
+        blender = finish.find_blender(self.settings["blender"]) if decorate else None
+        if decorate and not blender:
+            raise PhidiasError("unavailable", "Hace falta Blender para grabar la peana o hacer el alojamiento.",
+                               "Indica la ruta de Blender en Ajustes.")
         rec = {name: sculpting.MaterialRecipe.from_dict(m) for name, m in project["materials"].items()}
         t0 = time.time()
         result = sculpting.sculpt(scene, rec, st, lambda stage, frac: say(stage, frac * 0.8))
         say("cerrando el suelo", 0.82)
-        P, F = sculpting.assemble(result, st)
         pdir = self.store.dir(pid)
+        plate = None
+        if blender:
+            say("grabando la peana", 0.84)
+            plate = plinth_detail.decorate(result, st, blender, pdir)
+        P, F = sculpting.assemble(result, st, plate=plate)
         with tempfile.TemporaryDirectory(prefix="sculpt-", dir=pdir) as scratch:
             draft = Path(scratch)
             say("escribiendo STL", 0.86)
@@ -637,11 +647,12 @@ class Services:
             limit = int(self.settings["preview_faces"])
             view = result
             if len(result.F) > limit:
-                light = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": limit, "ground": False})
+                light = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": limit, "ground": bool(plate is not None and st.ground)})
                 view = sculpting.sculpt(scene, rec, light, lambda stage, frac: say(f"vista 3D: {stage}", 0.9 + frac * 0.05))
-            (draft / "sculpt.bin").write_bytes(export.viewer_buffers(view.P, view.F))
+            view_p, view_f = sculpting.assemble(view, st, plate=plate) if plate is not None else (view.P, view.F)
+            (draft / "sculpt.bin").write_bytes(export.viewer_buffers(view_p, view_f))
             say("imagen", 0.95)
-            preview.render(result.P, result.F, size=640).save(draft / "sculpt.png")
+            preview.render(view_p, view_f, size=640).save(draft / "sculpt.png")
             info = {**result.info, "file_bytes": size, "triangles_total": int(len(F)), "open_edges": sculpting.open_edges(F, len(P)),
                     "seconds": round(time.time() - t0, 1), "at": time.time(), "settings": {k: getattr(st, k) for k in PROJECT_SETTINGS}}
             begin_publish()

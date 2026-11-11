@@ -9,7 +9,6 @@
 - Partir un modelo grande en piezas con encajes para impresoras pequeñas, y cortes por plano.
 - Exportar 3MF con las piezas y el color de cada material para impresión multicolor.
 - Texturas originales de los juegos de Switch cuando existan junto al atlas horneado (más resolución que el horneado).
-- Peana con nombre grabado y hueco para la figura del legendario a escala.
 - Roca y terreno en el remodelado: retopología en quads que conserve las aristas duras.
 - Figuras: dar grosor a las partes que el juego hace con láminas (alas) y unir sus partes en una sola superficie.
 - Dibujo de la textura en las piezas que construyen tejado, cuerpo y torneado.

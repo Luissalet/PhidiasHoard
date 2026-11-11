@@ -120,6 +120,27 @@ def test_remodel_completes_missing_back_but_keeps_window(tmp_path):
         assert S.open_edges(scene.F, len(scene.P)) == expected
 
 
+def test_plinth_engraving_and_figure_recess_are_cut_at_print_size(tmp_path):
+    from phidias_hoard.engine import plinth_detail
+    from phidias_hoard.engine.finish import find_blender
+
+    blender = find_blender()
+    if not blender:
+        pytest.skip("Blender is not installed")
+    scene = meshio.load_model(write_wall(tmp_path))
+    st = S.SculptSettings(ground=False, plinth="round", size_mm=45, plinth_name="Lugia",
+                          plinth_socket_mm=12, plinth_socket_depth_mm=1.5)
+    result = S.sculpt(scene, {}, st)
+    points, triangles = plinth_detail.decorate(result, st, blender, tmp_path)
+    assert S.open_edges(triangles, len(points)) == 0
+    top = result.P[:, 2].min() + 0.01
+    engraved = points[np.isclose(points[:, 2], top - 0.6, atol=1e-4)]
+    pocket = points[np.isclose(points[:, 2], top - 1.5, atol=1e-4)]
+    assert len(engraved) > 20 and engraved[:, 1].max() < result.P[:, 1].min()
+    assert np.ptp(pocket[:, 0]) == pytest.approx(12, abs=0.01)
+    assert pocket[:, 0].min() > result.P[:, 0].max()
+
+
 def write_wall(tmp_path, with_shadow=True):
     """A floor, a wall standing on it and (optionally) a shadow plane, as an OBJ with its MTL and textures."""
     brick_texture(tmp_path / "brick.png")
