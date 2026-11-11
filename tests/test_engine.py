@@ -47,6 +47,31 @@ def brick_texture(path, size=32):
     Image.fromarray(a).save(path)
 
 
+def test_directional_detail_follows_a_tilted_shaft_and_roof():
+    from phidias_hoard.engine import patterns
+
+    angles = np.linspace(0, 2 * np.pi, 48, endpoint=False)
+    ring = np.column_stack([3 * np.cos(angles), 3 * np.sin(angles), np.zeros(len(angles))])
+    turn = np.array([[0.6, 0, 0.8], [0, 1, 0], [-0.8, 0, 0.6]])
+    points = np.concatenate([ring, ring + [0, 0, 22]]) @ turn
+    normals = np.concatenate([ring, ring]) @ turn / 3
+    i = np.arange(len(ring))
+    j = np.roll(i, -1)
+    n = len(ring)
+    faces = np.concatenate([np.column_stack([i, j, i + n]), np.column_stack([j, j + n, i + n])])
+    flutes = patterns.oriented("flutes", points, faces, normals, 1.8)
+    assert np.ptp(flutes) > 0.5
+    assert np.allclose(flutes[:n], flutes[n:], atol=1e-8)
+
+    # The upper edge is four millimetres away along the slope, exactly two staggered rows.
+    roof = np.array([[0, 0, 0], [7, 0, 0], [7, 2.4, 3.2], [0, 2.4, 3.2]])
+    normal = np.tile([0, -0.8, 0.6], (len(roof), 1))
+    tiles = patterns.oriented("tiles", roof, np.array([[0, 1, 2], [0, 2, 3]]), normal, 2)
+    assert np.allclose(tiles[[0, 1]], tiles[[3, 2]], atol=1e-8)
+    for name in ("carved_wood", "scales", "moss"):
+        assert np.ptp(patterns.pattern(name)) > 0.4
+
+
 def write_wall(tmp_path, with_shadow=True):
     """A floor, a wall standing on it and (optionally) a shadow plane, as an OBJ with its MTL and textures."""
     brick_texture(tmp_path / "brick.png")
