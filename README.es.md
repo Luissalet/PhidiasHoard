@@ -55,6 +55,8 @@ milímetros.
   0,3 mm para filamento, 0,1 mm para resina), dentro de un presupuesto de triángulos; si el detalle no cabe, se
   reparte por igual y te lo dice. Los triángulos vecinos siempre se cortan de acuerdo, así que la superficie nunca
   se abre.
+  **Cancelar trabajo** en la barra de progreso detiene el esculpido o la dirección en el siguiente punto de
+  control. Phidias conserva el último esculpido terminado.
 - **Suelo macizo**: las caras que miran hacia arriba sin nada debajo se cierran en un bloque macizo hasta una base,
   para que el terreno se imprima sin soportes por debajo. Peana rectangular o redonda opcional.
 - **Sólido cerrado**: un botón funde todo en un único sólido estanco con Blender en segundo plano (grosor para las

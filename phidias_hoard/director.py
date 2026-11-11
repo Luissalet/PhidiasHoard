@@ -180,6 +180,7 @@ def run(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]
                      'The pictures show each material by name. Decide every material. Answer: {"scene": "what this place is, one line", '
                      '"materials": {"<name>": {"what": "what it is", "recipe": ..., "depth_mm": ..., "cutout": true|false, "enrich": {...}|null}}}',
                      material_sheets(scene, project, names))
+    say("aplicando las recetas", 0.08)
     changes = {n: clean_change(c, project["materials"][n]) for n, c in (answer.get("materials") or {}).items() if n in project["materials"]}
     _apply(svc, pid, changes)
     log.append({"step": "materiales", "at": time.time(), "scene": str(answer.get("scene", ""))[:300],
@@ -194,7 +195,8 @@ def run(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]
         project = svc.store.get(pid)
         st = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": min(int(project["settings"]["max_faces"]), int(svc.settings["director_faces"]))})
         rec = {n: sculpting.MaterialRecipe.from_dict(m) for n, m in project["materials"].items()}
-        trial = sculpting.sculpt(scene, rec, st)
+        trial = sculpting.sculpt(scene, rec, st, lambda stage, progress: say(
+            f"prueba {attempt + 1}: {stage}", frac + progress * 0.22 / max(1, rounds)))
         say(f"el modelo mira la prueba {attempt + 1}", frac + 0.25 / max(1, rounds))
         materials = project["materials"]
         spots = []
@@ -221,6 +223,7 @@ def run(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]
             answer = llm.ask(SYSTEM, f"{prompt}\nThe last image contains the requested close-ups. Give your verdict and changes now.",
                              [*images, _closeup_sheet(trial, requested)])
         previous_views = current_views
+        say(f"revisando la prueba {attempt + 1}", frac + 0.42 / max(1, rounds))
         verdict = "redo" if str(answer.get("verdict", "")).lower() == "redo" else "ok"
         notes = str(answer.get("notes", ""))[:800]
         changes = {n: clean_change(c, project["materials"][n]) for n, c in (answer.get("materials") or {}).items() if n in project["materials"]}

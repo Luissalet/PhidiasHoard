@@ -64,6 +64,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   its verdict, and redoes the trial up to `director_rounds` before the final sculpt. Its
   answers are clamped (depths, sizes, no normal recipe without a normal map, no cut-out on atlases). The project keeps
   `director` (model, wish and the log of each step with verdict, notes and changes) and `what` per material.
+  `job_cancel` cancels a queued sculpt or directed sculpt or stops it at the next checkpoint. The last completed
+  sculpt stays available.
   Model: the family's vision model through Hoard Link, or `llm_url`/`llm_model` in settings.
 - Print settings (`project_set`): `size_mm` (longest side), `min_edge_mm`, `tolerance_mm`, `max_faces`, `ground`,
   `base_mm`, `plinth` (none, rect, round), `plinth_margin_mm`, `normal_cutoff_mm`, `sheet_mm`.

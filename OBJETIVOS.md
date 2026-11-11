@@ -6,7 +6,6 @@
   color) para los atlas horneados sin normales y para texturas donde las líneas oscuras no bastan.
 - Detalle añadido orientado por la pieza (estrías que sigan el eje de una columna inclinada, tejas que sigan la
   pendiente) y más patrones (madera tallada, escamas, musgo).
-- Cancelar una dirección o un esculpido en marcha.
 - Escalones por forma: detectar rampas con textura periódica sin depender del nombre del material.
 - Rellenar los espacios cerrados del sólido estanco (interiores de edificios) para que se impriman macizos.
 - Volumen para hojas y árboles en plano (copas a partir de las láminas cruzadas).
