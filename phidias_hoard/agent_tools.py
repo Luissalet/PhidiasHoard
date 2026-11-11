@@ -71,6 +71,9 @@ class SetArgs(ProjectId):
     base_mm: Optional[float] = Field(None, ge=0, le=100, description="Solid thickness under the lowest point of the ground.")
     plinth: Optional[Literal["none", "rect", "round"]] = Field(None, description="A plate under the whole scene.")
     plinth_margin_mm: Optional[float] = Field(None, ge=0, le=100)
+    plinth_name: Optional[str] = Field(None, max_length=60, description="Engrave this name on the front of a rectangular or round plinth.")
+    plinth_socket_mm: Optional[float] = Field(None, ge=0, le=120, description="Figure recess diameter in millimetres, or 0 for none.")
+    plinth_socket_depth_mm: Optional[float] = Field(None, ge=0.4, le=10, description="Figure recess depth in millimetres.")
     normal_cutoff_mm: Optional[float] = Field(None, ge=0.5, le=200, description="Relief from normal maps keeps features up to this size.")
     sheet_mm: Optional[float] = Field(None, ge=0, le=20, description="Thickness given to cut-out sheets (fences, leaves) so they print; 0 leaves a single surface.")
 

@@ -88,6 +88,11 @@
         <label class="field"><span>Grosor bajo el suelo (mm)</span><input type="number" id="s-base" class="input" min="0" max="100" step="0.5"></label>
         <label class="field"><span>Peana</span>
           <select id="s-plinth" class="input"><option value="none">Sin peana</option><option value="rect">Rectangular</option><option value="round">Redonda</option></select></label>
+        <div id="plinth-detail" hidden>
+          <label class="field"><span>Nombre grabado</span><input id="s-plinth-name" class="input" maxlength="60"></label>
+          <label class="field"><span>Diámetro del alojamiento (mm)</span><input id="s-plinth-socket" class="input" type="number" min="0" max="120" step="0.1"></label>
+          <label class="field"><span>Profundidad del alojamiento (mm)</span><input id="s-plinth-depth" class="input" type="number" min="0.4" max="10" step="0.1"></label>
+        </div>
         <label class="check"><input type="checkbox" id="close-fill-interior" checked><span>Rellenar cavidades al cerrar</span></label>
       </section>
       <section class="card">

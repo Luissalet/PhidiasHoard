@@ -55,7 +55,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   Use **Cancel job** in the progress bar to stop a sculpt or directed sculpt at its next checkpoint.
   Phidias keeps the last finished sculpt.
 - **Ground block**: the faces that look up with nothing below them are closed into a solid block down to a base, so
-  terrain prints without supports underneath. Optional rectangular or round plinth.
+  terrain prints without supports underneath. A rectangular or round plinth can have an engraved name and a
+  circular figure recess with the diameter and depth you set in millimetres. Engraving and the recess use Blender.
 - **Watertight solid**: one button fuses everything into a single closed solid with Blender in the background
   (thickness for loose sheets, voxel remesh) and checks that no edge is left open. It fills sealed cavities left
   by the remesh while keeping passages that are open to the outside. Disable **Fill cavities** to keep the raw remesh.

@@ -47,6 +47,9 @@ class SculptSettings:
     base_mm: float = 2.0         # thickness under the lowest point
     plinth: str = "none"         # none, rect, round: a plate under the whole scene
     plinth_margin_mm: float = 3.0
+    plinth_name: str = ""
+    plinth_socket_mm: float = 0.0
+    plinth_socket_depth_mm: float = 1.2
     sheet_mm: float = 0.8        # thickness given to cut-out sheets so they print (0 leaves them as a single surface)
     normal_cutoff_mm: float = 6.0  # relief from normal maps keeps features up to this size; wider undulation is dropped
 
@@ -60,6 +63,9 @@ class SculptSettings:
         s.size_mm = float(np.clip(s.size_mm, 10, 2000))
         s.min_edge_mm = float(np.clip(s.min_edge_mm, 0.05, 20))
         s.max_faces = int(np.clip(s.max_faces, 10_000, 60_000_000))
+        s.plinth_name = " ".join(s.plinth_name.split())[:60]
+        s.plinth_socket_mm = float(np.clip(s.plinth_socket_mm, 0, 120))
+        s.plinth_socket_depth_mm = float(np.clip(s.plinth_socket_depth_mm, 0.4, 10))
         return s
 
 
@@ -366,11 +372,11 @@ def close_ground(s: Sculpted, base_mm: float) -> tuple[np.ndarray, np.ndarray]:
     return np.concatenate([pts, centre]), tris.astype(np.int32)
 
 
-def plinth(s: Sculpted, kind: str, margin: float, base_mm: float, thickness: float = 2.0) -> tuple[np.ndarray, np.ndarray]:
+def plinth(s: Sculpted, kind: str, margin: float, base_mm: float, thickness: float = 2.0, *, bounds=None) -> tuple[np.ndarray, np.ndarray]:
     """A closed plate under the whole scene (its top at the base level). Points and triangles of its own."""
     if kind not in ("rect", "round") or not len(s.P):
         return np.zeros((0, 3)), np.zeros((0, 3), np.int32)
-    lo, hi = s.P.min(0), s.P.max(0)
+    lo, hi = bounds if bounds is not None else (s.P.min(0), s.P.max(0))
     top = lo[2] - base_mm + 0.01
     bot = top - thickness
     if kind == "rect":
@@ -391,14 +397,15 @@ def plinth(s: Sculpted, kind: str, margin: float, base_mm: float, thickness: flo
     return pts, tris.astype(np.int32)
 
 
-def assemble(s: Sculpted, settings: SculptSettings) -> tuple[np.ndarray, np.ndarray]:
+def assemble(s: Sculpted, settings: SculptSettings, *, plate=None) -> tuple[np.ndarray, np.ndarray]:
     """The printable mesh: sculpted surface, ground block and plinth, in millimetres with the base at z = 0."""
     pts, tris = [s.P], [s.F]
     n = len(s.P)
     if settings.ground:
         gp, gt = close_ground(s, settings.base_mm)
         pts.append(gp); tris.append(gt); n += len(gp)
-    pp, pt = plinth(s, settings.plinth, settings.plinth_margin_mm, settings.base_mm if settings.ground else 0.0)
+    pp, pt = plate if plate is not None else plinth(s, settings.plinth, settings.plinth_margin_mm,
+                                                   settings.base_mm if settings.ground else 0.0)
     if len(pp):
         pts.append(pp); tris.append(pt + n)
     P = np.concatenate(pts)

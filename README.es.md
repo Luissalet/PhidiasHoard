@@ -60,7 +60,9 @@ milímetros.
   **Cancelar trabajo** en la barra de progreso detiene el esculpido o la dirección en el siguiente punto de
   control. Phidias conserva el último esculpido terminado.
 - **Suelo macizo**: las caras que miran hacia arriba sin nada debajo se cierran en un bloque macizo hasta una base,
-  para que el terreno se imprima sin soportes por debajo. Peana rectangular o redonda opcional.
+  para que el terreno se imprima sin soportes por debajo. En la peana rectangular o redonda puedes grabar un
+  nombre y abrir un alojamiento circular para la figura con el diámetro y la profundidad que indiques en
+  milímetros. El grabado y el alojamiento requieren Blender.
 - **Sólido cerrado**: un botón funde todo en un único sólido estanco con Blender en segundo plano (grosor para las
   láminas sueltas y remallado por vóxeles) y comprueba que no queda ningún borde abierto. Rellena las cavidades
   selladas que quedan tras el remallado y conserva los pasos abiertos al exterior. Desmarca **Rellenar cavidades al
