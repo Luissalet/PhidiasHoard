@@ -141,13 +141,13 @@ function drawLibrary() {
       el('span', { class: 'name', text: e.name }), el('span', { class: 'meta', text: human(e.bytes) }),
       el('span', { class: `tag${e.project_id ? ' done' : ''}`, text: e.format })));
   }
-  if (!shown) list.append(el('div', { class: 'hint', text: q ? 'Nada con ese nombre.' : 'No hay modelos OBJ, DAE, GLB o glTF en esas carpetas.' }));
+  if (!shown) list.append(el('div', { class: 'hint', text: q ? 'Nada con ese nombre.' : 'No hay modelos OBJ, DAE, GLB, glTF, FBX o .blend en esas carpetas.' }));
 }
 
 async function openEntry(e) {
   try {
     if (e.project_id) return openProject(e.project_id);
-    toast(`Leyendo ${e.name}…`);
+    toast(`${['fbx', 'blend'].includes(e.format) ? 'Convirtiendo con Blender:' : 'Leyendo'} ${e.name}…`);
     const p = await call('project_create', { source: e.path, inner: e.inner || '' });
     e.project_id = p.id;
     await loadProjects();
@@ -439,7 +439,7 @@ async function openSettings() {
   const shell = el('input', { class: 'input', type: 'number', min: '0', max: '20', step: '0.1', value: s.shell_mm });
   const blender = el('input', { class: 'input', type: 'text', value: s.blender, placeholder: st.blender || 'No encuentro Blender: escribe la ruta de blender.exe' });
   const r = await modal({ title: 'Ajustes', body: [
-    el('label', {}, el('span', { text: 'Carpetas con modelos de juegos (OBJ, DAE, GLB, glTF o zips)' }), dirs),
+    el('label', {}, el('span', { text: 'Carpetas con modelos (OBJ, DAE, GLB, glTF, FBX, .blend o ZIP)' }), dirs),
     el('label', { class: 'field' }, el('span', { text: 'Cerrar malla: tamaño de vóxel (mm)' }), voxel),
     el('label', { class: 'field' }, el('span', { text: 'Cerrar malla: grosor de láminas sueltas (mm)' }), shell),
     el('label', {}, el('span', { text: `Blender${st.blender ? ' (encontrado solo)' : ''}` }), blender)],

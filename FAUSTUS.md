@@ -50,7 +50,7 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   quads, tris, n-gons per object). `model_look` with `result: remodel` draws the edges (`wire`); `result_export`
   copies the .blend and .obj.
 
-- List the game models in the library folders (`library_scan`: OBJ, Collada, GLB, glTF, loose or inside zips; one
+- List the game models in the library folders (`library_scan`: OBJ, Collada, GLB, glTF, FBX and `.blend`, loose or inside zips; one
   entry per scene, richest format first; `query`, `group`, `limit`, `offset`; `groups` counts per top folder).
 - Open a model as a project (`project_create`): geometry welded and turned Z up, materials with their pictures, a
   recipe guessed per material (shadow planes, flames and glows removed; water and glass flat; normal map when there is

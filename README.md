@@ -28,8 +28,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   next to the original and correct it ("Remodelar con IA"). Pieces of the same shape are one type: you choose what each type
   is and its parameters (tiles per side, bays, bars, segments). The result is a `.blend` with one object per piece
   and the bevels as live modifiers, and an OBJ in quads. The 3D view and the pictures draw the mesh's own edges.
-- **Library**: point it at the folders where you keep game models. It lists every OBJ (with its MTL and textures),
-  Collada (`.dae`), GLB and glTF it finds, also inside zips, grouped by folder. A scene that comes in several formats
+- **Library**: point it at the folders where you keep game models. It lists OBJ (with its MTL and textures),
+  Collada (`.dae`), GLB, glTF, FBX and `.blend` files, including those in ZIP archives, grouped by folder. A scene that comes in several formats
   appears once, in the richest one.
 - **Project**: opening a model reads its geometry and materials and guesses a recipe for each material. Zips are
   unpacked inside the project; everything else is read where it is.
@@ -80,7 +80,8 @@ It listens on http://127.0.0.1:5251. Data lives in `data/` (`PHIDIAS_DATA_DIR` t
 
 ## Limits
 
-- Formats: OBJ, Collada, GLB and glTF. FBX and `.blend` have to be converted first.
+- Opening an FBX or `.blend` requires Blender. Phidias converts the scene to GLB in the background and keeps it in the
+  project folder so it can reopen without conversion. The original is left unchanged.
 - The relief comes from what the textures hold. A flat colour gives nothing, and a baked atlas without normal maps
   gives less than the game's original textures would.
 - The watertight solid loses detail finer than its voxel size and leaves enclosed spaces hollow.

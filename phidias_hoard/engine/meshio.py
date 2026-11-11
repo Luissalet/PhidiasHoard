@@ -17,7 +17,8 @@ from typing import Any, Optional
 import numpy as np
 from PIL import Image
 
-MODEL_EXTS = (".obj", ".glb", ".gltf", ".dae")
+BLENDER_EXTS = (".fbx", ".blend")
+MODEL_EXTS = (".obj", ".glb", ".gltf", ".dae", *BLENDER_EXTS)
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".tga", ".bmp", ".tif", ".tiff", ".webp", ".dds")
 
 
@@ -621,7 +622,7 @@ def extract_zip(zip_path: Path, dest: Path, only_under: str = "") -> None:
                 out.write(src.read())
 
 
-_RANK = {".glb": 0, ".gltf": 1, ".dae": 2, ".obj": 3}
+MODEL_RANK = {ext: i for i, ext in enumerate((".glb", ".gltf", ".dae", ".obj", *BLENDER_EXTS))}
 
 
 def distinct_models(candidates: list[str]) -> list[str]:
@@ -635,14 +636,14 @@ def distinct_models(candidates: list[str]) -> list[str]:
             folder = folder[:-4] if "/" in folder else ""
         stem, ext = os.path.splitext(file)
         key = (folder.lower(), stem.lower())
-        if key not in best or _RANK.get(ext.lower(), 9) < _RANK.get(os.path.splitext(best[key])[1].lower(), 9):
+        if key not in best or MODEL_RANK.get(ext.lower(), 9) < MODEL_RANK.get(os.path.splitext(best[key])[1].lower(), 9):
             best[key] = c
     return sorted(best.values(), key=lambda c: c.lower())
 
 
 def pick_model(candidates: list[str]) -> str:
     """Of several models in one package, the one to open when none is named."""
-    return sorted(candidates, key=lambda c: (_RANK.get(os.path.splitext(c)[1].lower(), 9), len(c)))[0]
+    return sorted(candidates, key=lambda c: (MODEL_RANK.get(os.path.splitext(c)[1].lower(), 9), len(c)))[0]
 
 
 def save_npz(scene: Scene, path: Path) -> None:
