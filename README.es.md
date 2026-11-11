@@ -60,7 +60,9 @@ milímetros.
 - **Suelo macizo**: las caras que miran hacia arriba sin nada debajo se cierran en un bloque macizo hasta una base,
   para que el terreno se imprima sin soportes por debajo. Peana rectangular o redonda opcional.
 - **Sólido cerrado**: un botón funde todo en un único sólido estanco con Blender en segundo plano (grosor para las
-  láminas sueltas y remallado por vóxeles) y comprueba que no queda ningún borde abierto.
+  láminas sueltas y remallado por vóxeles) y comprueba que no queda ningún borde abierto. Rellena las cavidades
+  selladas que quedan tras el remallado y conserva los pasos abiertos al exterior. Desmarca **Rellenar cavidades al
+  cerrar** para conservar el remallado original.
 - **Vista 3D e imágenes**: original, esculpido y sólido cerrado en el navegador; imágenes sombreadas a partir de la
   propia geometría, desde cualquier ángulo, ampliadas sobre un punto o junto al original.
 - **STL** en milímetros con la base en z = 0, descargado o guardado en una carpeta `Phidias` junto al modelo de origen.
@@ -85,5 +87,5 @@ solo (o se indica su ruta en Ajustes); sin él funciona todo menos el sólido ce
 - Formatos: OBJ, Collada, GLB y glTF. Los FBX y `.blend` hay que convertirlos antes.
 - El relieve sale de lo que contienen las texturas. Un color plano no da nada, y un atlas horneado sin mapas de
   normales da menos que las texturas originales del juego.
-- El sólido cerrado pierde el detalle más fino que su tamaño de vóxel y deja huecos los espacios cerrados.
+- El sólido cerrado pierde el detalle más fino que su tamaño de vóxel.
 - Las hojas y los árboles en plano siguen siendo láminas con grosor: no se convierten en volúmenes.

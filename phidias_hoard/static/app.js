@@ -255,6 +255,7 @@ function drawResult() {
   if (r.edge_mm) bar.append(el('span', { class: r.edge_mm > r.edge_asked_mm * 1.05 ? 'warn' : '' },
     `Detalle: ${r.edge_mm} mm${r.edge_mm > r.edge_asked_mm * 1.05 ? ` (pedías ${r.edge_asked_mm}; sube el presupuesto de triángulos)` : ''}`));
   bar.append(el('span', { class: r.open_edges ? 'warn' : 'ok', text: r.open_edges ? `${nf.format(r.open_edges)} bordes abiertos (ciérralo con «Cerrar malla» si tu laminador se queja)` : 'Malla cerrada' }));
+  if (r.cavities_filled) bar.append(el('span', { text: r.cavities_filled === 1 ? 'Una cavidad rellenada' : `${nf.format(r.cavities_filled)} cavidades rellenadas` }));
   bar.append(el('span', { text: `${human(r.file_bytes)} · ${r.seconds} s` }));
 }
 
@@ -441,10 +442,10 @@ function watchJob(id) {
   tick();
 }
 
-async function startJob(tool) {
+async function startJob(tool, options = {}) {
   clearTimeout(saveTimer);
   try {
-    const j = await call(tool, { project_id: state.project.id });
+    const j = await call(tool, { project_id: state.project.id, ...options });
     watchJob(j.id);
   } catch (err) { fail(err); }
 }
@@ -488,7 +489,7 @@ $('btn-remodel').addEventListener('click', () => startJob('remodel_start'));
 $('btn-remodel-ai').addEventListener('click', startRemodelDirect);
 $('wire').addEventListener('change', (ev) => view.showEdges(ev.target.checked));
 $('btn-download-obj').addEventListener('click', () => { window.location.href = `/api/projects/${state.project.id}/download/remodel.obj`; });
-$('btn-close').addEventListener('click', () => startJob('close_start'));
+$('btn-close').addEventListener('click', () => startJob('close_start', { fill_interior: $('close-fill-interior').checked }));
 $('btn-download').addEventListener('click', () => {
   if (state.which === 'remodel') { window.location.href = `/api/projects/${state.project.id}/download/remodel.blend`; return; }
   const which = state.which === 'closed' ? 'closed' : 'sculpt';

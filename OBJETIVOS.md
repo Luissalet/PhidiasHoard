@@ -7,7 +7,6 @@
 - Detalle añadido orientado por la pieza (estrías que sigan el eje de una columna inclinada, tejas que sigan la
   pendiente) y más patrones (madera tallada, escamas, musgo).
 - Escalones por forma: detectar rampas con textura periódica sin depender del nombre del material.
-- Rellenar los espacios cerrados del sólido estanco (interiores de edificios) para que se impriman macizos.
 - Volumen para hojas y árboles en plano (copas a partir de las láminas cruzadas).
 - Partir un modelo grande en piezas con encajes para impresoras pequeñas, y cortes por plano.
 - Exportar 3MF con las piezas y el color de cada material para impresión multicolor.

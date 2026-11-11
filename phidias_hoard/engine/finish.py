@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 
 SCRIPT = Path(__file__).with_name("blender_close.py")
 
@@ -66,3 +68,60 @@ def read_stl(path: Path) -> tuple[np.ndarray, np.ndarray]:
     ext = float((pts.max(0) - pts.min(0)).max()) if len(pts) else 1.0
     P, inv = weld(pts, max(ext, 1e-9) * 1e-6)
     return P, inv.reshape(-1, 3).astype(np.int32)
+
+
+def fill_cavities(P: np.ndarray, F: np.ndarray) -> tuple[np.ndarray, np.ndarray, int]:
+    """Drop inward-facing closed shells left by the remesh and any islands they enclose."""
+    from .sculpt import open_edges
+
+    count, labels = connected_components(
+        coo_matrix((np.ones(2 * len(F), dtype=bool), (F[:, :2].reshape(-1), F[:, 1:].reshape(-1))),
+                   shape=(len(P), len(P))), directed=False)
+    if count < 2:
+        return P, F, 0
+    component = labels[F[:, 0]]
+    volume = np.zeros(count)
+    for start in range(0, len(F), 200_000):
+        indices = slice(start, start + 200_000)
+        a, b, c = P[F[indices]].transpose(1, 0, 2)
+        signed = np.einsum("ij,ij->i", a, np.cross(b, c)) / 6
+        volume += np.bincount(component[indices], signed, minlength=count)
+    eps = 1e-12 * float(np.ptp(P, axis=0).max()) ** 3
+    inward = np.flatnonzero(volume < -eps)
+    outward = np.flatnonzero(volume > eps)
+    if not len(inward) or not len(outward):
+        return P, F, 0
+
+    lo = np.full((count, 3), np.inf)
+    hi = np.full((count, 3), -np.inf)
+    np.minimum.at(lo, labels, P)
+    np.maximum.at(hi, labels, P)
+    removed = np.zeros(count, dtype=bool)
+    cavities = 0
+    for cavity in inward:
+        if not np.any(np.all((lo[outward] < lo[cavity]) & (hi[cavity] < hi[outward]), axis=1)):
+            continue
+        shell = F[component == cavity]
+        if open_edges(shell, len(P)):
+            continue
+        removed[cavity] = True
+        cavities += 1
+        islands = outward[np.all((lo[cavity] < lo[outward]) & (hi[outward] < hi[cavity]), axis=1)]
+        for island in islands:
+            if not removed[island] and _inside_shell(P[np.flatnonzero(labels == island)[0]], P[shell]):
+                removed[island] = True
+    if not cavities:
+        return P, F, 0
+    keep = ~removed[labels]
+    remap = np.cumsum(keep, dtype=np.int32) - 1
+    return P[keep], remap[F[~removed[component]]], cavities
+
+
+def _inside_shell(point: np.ndarray, triangles: np.ndarray) -> bool:
+    """A closed shell subtends 4π steradians from an interior point and zero from outside."""
+    a, b, c = (triangles - point).transpose(1, 0, 2)
+    la, lb, lc = (np.linalg.norm(v, axis=1) for v in (a, b, c))
+    numer = np.einsum("ij,ij->i", a, np.cross(b, c))
+    denom = (la * lb * lc + np.einsum("ij,ij->i", a, b) * lc
+             + np.einsum("ij,ij->i", b, c) * la + np.einsum("ij,ij->i", c, a) * lb)
+    return bool(abs(np.arctan2(numer, denom).sum()) > np.pi)

@@ -55,7 +55,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 - **Ground block**: the faces that look up with nothing below them are closed into a solid block down to a base, so
   terrain prints without supports underneath. Optional rectangular or round plinth.
 - **Watertight solid**: one button fuses everything into a single closed solid with Blender in the background
-  (thickness for loose sheets, voxel remesh) and checks that no edge is left open.
+  (thickness for loose sheets, voxel remesh) and checks that no edge is left open. It fills sealed cavities left
+  by the remesh while keeping passages that are open to the outside. Disable **Fill cavities** to keep the raw remesh.
 - **3D view and pictures**: original, sculpt and closed solid in the browser; pictures shaded from the geometry
   itself, from any angle, zoomed on a spot, or next to the original.
 - **STL** in millimetres with the base at z = 0, downloaded or saved in a `Phidias` folder next to the source model.
@@ -79,5 +80,5 @@ It listens on http://127.0.0.1:5251. Data lives in `data/` (`PHIDIAS_DATA_DIR` t
 - Formats: OBJ, Collada, GLB and glTF. FBX and `.blend` have to be converted first.
 - The relief comes from what the textures hold. A flat colour gives nothing, and a baked atlas without normal maps
   gives less than the game's original textures would.
-- The watertight solid loses detail finer than its voxel size and leaves enclosed spaces hollow.
+- The watertight solid loses detail finer than its voxel size.
 - Leaves and tree cards stay flat sheets with thickness: they are not turned into volumes.

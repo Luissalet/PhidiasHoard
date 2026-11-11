@@ -527,13 +527,13 @@ class Services:
     def start_sculpt(self, pid: str) -> dict[str, Any]:
         return self._enqueue("sculpt", pid)
 
-    def start_close(self, pid: str) -> dict[str, Any]:
+    def start_close(self, pid: str, fill_interior: bool = True) -> dict[str, Any]:
         project = self.store.get(pid)
         if "sculpt" not in project.get("results", {}):
             raise PhidiasError("invalid", "Primero hay que esculpir el proyecto.", "Lanza sculpt_start y espera a que acabe.")
         if not finish.find_blender(self.settings["blender"]):
             raise PhidiasError("unavailable", "No encuentro Blender en este equipo.", "Instálalo o indica su ruta en el ajuste blender.")
-        return self._enqueue("close", pid)
+        return self._enqueue("close", pid, {"fill_interior": fill_interior})
 
     def _run(self) -> None:
         while True:
@@ -572,7 +572,7 @@ class Services:
             elif job["kind"] == "direct":
                 job["result"] = self._do_direct(job["project_id"], say, job["params"], begin_publish)
             else:
-                job["result"] = self._do_close(job["project_id"], say)
+                job["result"] = self._do_close(job["project_id"], say, job["params"]["fill_interior"])
             job["state"] = "done"
             job["stage"], job["progress"] = "hecho", 1.0
         except _JobCancelled:
@@ -625,7 +625,7 @@ class Services:
         self.store.save(project)
         return info
 
-    def _do_close(self, pid: str, say) -> dict[str, Any]:
+    def _do_close(self, pid: str, say, fill_interior: bool) -> dict[str, Any]:
         project = self.store.get(pid)
         pdir = self.store.dir(pid)
         blender = finish.find_blender(self.settings["blender"])
@@ -634,18 +634,22 @@ class Services:
         t0 = time.time()
         say("preparando", 0.05)
         P, F = np.load(pdir / "sculpt_P.npy"), np.load(pdir / "sculpt_F.npy")
-        ply = pdir / "sculpt.ply"
-        export.write_ply(ply, P, F)
-        say("Blender: fundiendo en un sólido", 0.15)
         voxel, shell = float(self.settings["voxel_mm"]), float(self.settings["shell_mm"])
-        try:
-            run = finish.close_mesh(blender, ply, pdir / "closed.stl", voxel, shell, int(project["settings"].get("max_faces", 8_000_000)))
-        except Exception as exc:
-            raise PhidiasError("failed", str(exc)) from exc
-        finally:
-            ply.unlink(missing_ok=True)
-        say("comprobando", 0.85)
-        CP, CF = finish.read_stl(pdir / "closed.stl")
+        with tempfile.TemporaryDirectory(prefix="close-", dir=pdir) as scratch:
+            ply = Path(scratch) / "sculpt.ply"
+            raw = Path(scratch) / "closed.stl"
+            export.write_ply(ply, P, F)
+            say("Blender: fundiendo en un sólido", 0.15)
+            try:
+                run = finish.close_mesh(blender, ply, raw, voxel, shell, int(project["settings"].get("max_faces", 8_000_000)))
+                say("comprobando", 0.85)
+                CP, CF = finish.read_stl(raw)
+            except Exception as exc:
+                raise PhidiasError("failed", str(exc)) from exc
+        cavities = 0
+        if fill_interior:
+            say("rellenando cavidades", 0.88)
+            CP, CF, cavities = finish.fill_cavities(CP, CF)
         CP -= CP.min(0)
         size = export.write_stl(pdir / "closed.stl", CP, CF, project["name"])
         np.save(pdir / "closed_P.npy", CP.astype(np.float32))
@@ -655,7 +659,8 @@ class Services:
         preview.render(CP, CF, size=640).save(pdir / "closed.png")
         info = {"triangles_total": int(len(CF)), "open_edges": sculpting.open_edges(CF, len(CP)), "file_bytes": size,
                 "size_mm": [round(float(v), 2) for v in CP.max(0)], "voxel_mm": voxel, "shell_mm": shell,
-                "seconds": round(time.time() - t0, 1), "at": time.time(), "log": run["log"]}
+                "seconds": round(time.time() - t0, 1), "at": time.time(), "log": run["log"],
+                "fill_interior": fill_interior, "cavities_filled": cavities}
         info["watertight"] = info["open_edges"] == 0
         project = self.store.get(pid)
         project.setdefault("results", {})["closed"] = info
