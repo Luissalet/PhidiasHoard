@@ -94,11 +94,18 @@ class DirectArgs(ProjectId):
 
 
 class PieceChange(BaseModel):
-    kind: Optional[Literal["roof", "body", "block", "lathe", "stairs", "keep", "drop"]] = None
+    kind: Optional[Literal["roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "keep", "drop"]] = None
     params: Optional[dict[str, Any]] = Field(None, description="roof: tiles (ribs per side), rows, concave (1-2), corner_lift (0-0.8), tile_radius, bevel. "
-                                             "body: bays_x, bays_y, zones (per band bottom to top: panel, lattice or plain), bars, door_bay (bay of the front, or null), "
-                                             "post_section (square, round), post, beam, panel_depth. block: bevel. lathe: segments, bevel. stairs: steps, axis (x, y), flip. Sizes in mm.")
+                                             "lathe also flutes (channels of a fluted shaft). body: bays_x, bays_y, zones (per band bottom to top: panel, lattice or plain), bars, door_bay (bay of the front, or null), "
+                                             "post_section (square, round), post, beam, panel_depth. block: bevel. lathe: segments, sides (flat sides of a prism, 0 round), bevel. tiled: tiles. sweep: smooth. stairs: steps, axis (x, y), flip. "
+                                             "keep, tiled, sweep, block: emboss (0 leaves out what the textures draw). Sizes in mm.")
     what: Optional[str] = Field(None, max_length=160)
+
+
+class RemodelStartArgs(ProjectId):
+    direct: bool = Field(False, description="Let the vision model decide what every type of piece is and its parameters from pictures of the pieces and their textures, look at the build next to the original and redo it.")
+    rounds: int = Field(0, ge=0, le=6, description="With direct: builds the model may look at and redo (0 = the setting director_rounds).")
+    wish: str = Field("", max_length=500, description="With direct: what the user wants, in words.")
 
 
 class RemodelSetArgs(ProjectId):
@@ -217,7 +224,7 @@ TOOLS: list[Tool] = [
          RemodelSetArgs, ann(draft_safe=True, idempotent=True), lambda s, a: s.remodel_set(a.project_id, {k: v.model_dump(exclude_none=True) for k, v in a.types.items()})),
     Tool("remodel_start", _d("Rebuild the model piece by piece in Blender with modelling operations and clean quads, using the game model only as the reference "
                              "for sizes and positions. Returns a job id. Result: a .blend (one object per piece, bevels as live modifiers) and an OBJ in quads.",
-                             synonyms="remodelar, topología limpia, reconstruir"), ProjectId, ann(draft_safe=True), lambda s, a: s.start_remodel(a.project_id)),
+                             synonyms="remodelar, topología limpia, reconstruir"), RemodelStartArgs, ann(draft_safe=True), lambda s, a: s.start_remodel(a.project_id, a.direct, a.rounds, a.wish)),
     Tool("direct_start", _d("Let the family's vision model direct the sculpt: it looks at every material, decides recipe, depth, cut-outs and enrichment, "
                             "has a test sculpted, looks at it next to the original and redoes it while it is not satisfied; then the final sculpt. Returns a job id.",
                             "What it decided and why is kept in the project (director). Needs the vision model reachable (status.model).", "dirigir con IA, que lo decida el modelo, rehacer"),

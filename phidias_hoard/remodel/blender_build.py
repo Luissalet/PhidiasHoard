@@ -24,6 +24,7 @@ scene.unit_settings.scale_length = 0.001
 scene.unit_settings.length_unit = "MILLIMETERS"
 COLLECTIONS = {}
 STATS = []
+PLACE = {"center": (0.0, 0.0), "yaw": 0.0}       # where the piece being built goes: it is modelled around its own axis
 
 
 def collection(kind):
@@ -34,7 +35,7 @@ def collection(kind):
     return COLLECTIONS[kind]
 
 
-def finish(bm, name, kind, bevel=0.0, smooth=False, weld=True):
+def finish(bm, name, kind, bevel=0.0, smooth=False, weld=True, weighted=False):
     if weld:
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -45,6 +46,8 @@ def finish(bm, name, kind, bevel=0.0, smooth=False, weld=True):
     bm.free()
     obj = bpy.data.objects.new(name, mesh)
     collection(kind).objects.link(obj)
+    obj.location = (PLACE["center"][0], PLACE["center"][1], 0.0)
+    obj.rotation_euler = (0.0, 0.0, PLACE["yaw"])
     if smooth:
         for p in mesh.polygons:
             p.use_smooth = True
@@ -52,7 +55,7 @@ def finish(bm, name, kind, bevel=0.0, smooth=False, weld=True):
         m = obj.modifiers.new("Bisel", "BEVEL")
         m.width = bevel
         m.segments = 2
-        m.limit_method = "ANGLE"
+        m.limit_method = "WEIGHT" if weighted else "ANGLE"
         m.angle_limit = math.radians(35)
         m.harden_normals = True
     STATS.append({"name": name, "kind": kind, **counts})
@@ -80,7 +83,9 @@ def loft_rect(bm, rings):
 
 # ------------------------------------------------------------------------------------------------------------ block
 def build_block(piece, name):
-    cx, cy = piece["center"][:2]
+    if len(piece["profile"]) == 2 and not piece.get("completed") and piece["params"].get("emboss", 1) and _drawn(piece):
+        return build_keep(piece, name, kind="bloques")      # a plain box whose faces carry a drawing: the box itself, drawn in
+    cx, cy = 0.0, 0.0
     rings = [(cx, cy, z, sx, sy) for z, sx, sy in piece["profile"]]
     if len(rings) < 2:
         return
@@ -91,16 +96,48 @@ def build_block(piece, name):
 
 # ------------------------------------------------------------------------------------------------------------ lathe
 def build_lathe(piece, name):
-    cx, cy = piece["center"][:2]
+    cx, cy = 0.0, 0.0
     seg = int(piece["params"].get("segments", 24))
     prof = [(max(sx, sy) / 2, z) for z, sx, sy in piece["profile"]]
+    polar = piece.get("polar") or {}
+    sides = int(piece["params"].get("sides", 0))
+    turn, hole = 0.0, 0.0
+    if polar:
+        prof = [(r, z) for z, r in polar["radii"]]
+        hole = float(polar.get("hole", 0.0))
+    if sides >= 3:                                         # a prism: the corners it has, where it has them
+        seg = sides
+        if polar and polar.get("sides") == sides:
+            turn = math.radians(polar["phase"])
     bm = bmesh.new()
     rings = []
+    flutes = int(piece["params"].get("flutes", 0))
+    if flutes > 0:                                         # a fluted shaft: channels between the base and the capital
+        seg = flutes * 6
+        zmin, zmax = prof[0][1], prof[-1][1]
+        shaft = [(r, z) for r, z in prof if r > 1e-6]
+        body_r = sorted(r for r, _ in shaft)[len(shaft) // 2] if shaft else 0.0
+        extra = []
+        for (r0, za), (r1, zb) in zip(prof, prof[1:]):     # more rings along the shaft so the channels end softly
+            extra.append((r0, za))
+            if zb - za > 0.3 * (zmax - zmin):
+                for f in (0.06, 0.94):
+                    extra.append((r0 + (r1 - r0) * f, za + (zb - za) * f))
+        prof = extra + [prof[-1]]
+
+    def radius(r, z, i):
+        if flutes <= 0 or r < 1e-6:
+            return r
+        t = (z - prof[0][1]) / max(prof[-1][1] - prof[0][1], 1e-9)
+        inside = 0.0 if (t < 0.04 or t > 0.96 or r > body_r * 1.12) else 1.0
+        phase = (i % 6) / 6.0
+        return r * (1.0 - inside * 0.09 * math.sin(math.pi * phase) ** 0.8)
+
     for r, z in prof:
         if r < 1e-6:
             rings.append([bm.verts.new((cx, cy, z))])
         else:
-            rings.append([bm.verts.new((cx + r * math.cos(2 * math.pi * i / seg), cy + r * math.sin(2 * math.pi * i / seg), z)) for i in range(seg)])
+            rings.append([bm.verts.new((cx + radius(r, z, i) * math.cos(turn + 2 * math.pi * i / seg), cy + radius(r, z, i) * math.sin(turn + 2 * math.pi * i / seg), z)) for i in range(seg)])
     for a, b in zip(rings, rings[1:]):
         for i in range(seg):
             j = (i + 1) % seg
@@ -112,13 +149,69 @@ def build_lathe(piece, name):
                 bm.faces.new((a[i], a[j], b[0]))
             else:
                 bm.faces.new((a[i], a[j], b[j], b[i]))
-    if len(rings[0]) > 1:                                  # the bottom as a fan of quads around a small centre ring
-        inner = [bm.verts.new((cx + 0.35 * (v.co.x - cx), cy + 0.35 * (v.co.y - cy), v.co.z)) for v in rings[0]]
+    ends = [(ring, k == 0) for k, ring in enumerate((rings[0], rings[-1])) if len(ring) > 1]
+    if hole > 1e-6 and len(ends) == 2:                     # a ring: an inner wall and a flat band at each end
+        inner = [[bm.verts.new((v.co.x * hole / max(math.hypot(v.co.x, v.co.y), 1e-9), v.co.y * hole / max(math.hypot(v.co.x, v.co.y), 1e-9), v.co.z))
+                  for v in ring] for ring, _ in ends]
         for i in range(seg):
             j = (i + 1) % seg
-            bm.faces.new((rings[0][j], rings[0][i], inner[i], inner[j]))
-        bm.faces.new(inner[::-1])
-    finish(bm, name, "torneados", bevel=float(piece["params"].get("bevel", 0.12)), smooth=True)
+            bm.faces.new((inner[0][j], inner[0][i], inner[1][i], inner[1][j]))
+            bm.faces.new((rings[0][j], rings[0][i], inner[0][i], inner[0][j]))
+            bm.faces.new((rings[-1][i], rings[-1][j], inner[1][j], inner[1][i]))
+    else:
+        for ring, bottom in ends:                          # each end as a band of quads around a small middle
+            inner = [bm.verts.new((cx + 0.35 * (v.co.x - cx), cy + 0.35 * (v.co.y - cy), v.co.z)) for v in ring]
+            for i in range(seg):
+                j = (i + 1) % seg
+                bm.faces.new((ring[j], ring[i], inner[i], inner[j]) if bottom else (ring[i], ring[j], inner[j], inner[i]))
+            if seg == 4:
+                bm.faces.new(inner[::-1] if bottom else inner)
+            else:
+                mid = bm.verts.new((cx, cy, ring[0].co.z))
+                if seg % 2 == 0:                           # quads all the way to the middle
+                    for i in range(0, seg, 2):
+                        q = (inner[i], inner[(i + 1) % seg], inner[(i + 2) % seg], mid)
+                        bm.faces.new(q[::-1] if bottom else q)
+                else:
+                    for i in range(seg):
+                        q = (inner[i], inner[(i + 1) % seg], mid)
+                        bm.faces.new(q[::-1] if bottom else q)
+    finish(bm, name, "torneados", bevel=float(piece["params"].get("bevel", 0.12)), smooth=sides < 3)
+
+
+# ------------------------------------------------------------------------------------------------------------ sweep
+def build_sweep(piece, name):
+    """A beam along its own line, straight or curved: box sections joined by quads, a quad at each end."""
+    if piece["params"].get("emboss", 1) and "smooth" not in piece["params"] and _drawn(piece):
+        return build_keep(piece, name, kind="vigas")       # its texture draws on it: the beam itself, drawn in
+    info = piece["sections"]
+    st = [list(v) for v in info["stations"]]
+    extra = int(piece["params"].get("smooth", 3 if len(st) >= 4 else 0))
+    if extra > 0 and len(st) >= 3:                         # a curved beam gets sections in between, on a smooth line through its own
+        fine = []
+        for k in range(len(st) - 1):
+            p0, p1, p2, p3 = st[max(k - 1, 0)], st[k], st[k + 1], st[min(k + 2, len(st) - 1)]
+            for j in range(extra + 1):
+                t = j / (extra + 1)
+                fine.append([0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t ** 3)
+                             for a, b, c, d in zip(p0, p1, p2, p3)])
+        st = fine + [st[-1]]
+    bm = bmesh.new()
+    loops = []
+    for x, y0, y1, z0, z1 in st:
+        if y1 - y0 < 1e-6:
+            y0, y1 = y0 - 0.02, y1 + 0.02
+        if z1 - z0 < 1e-6:
+            z0, z1 = z0 - 0.02, z1 + 0.02
+        ring = ((x, y0, z0), (x, y1, z0), (x, y1, z1), (x, y0, z1))
+        loops.append([bm.verts.new(p if info["axis"] == "x" else (p[1], p[0], p[2])) for p in ring])
+    for a, b in zip(loops, loops[1:]):
+        for i in range(4):
+            j = (i + 1) % 4
+            bm.faces.new((a[i], a[j], b[j], b[i]))
+    bm.faces.new(loops[0][::-1])
+    bm.faces.new(loops[-1])
+    finish(bm, name, "vigas", bevel=float(piece["params"].get("bevel", 0.15)))
 
 
 # ------------------------------------------------------------------------------------------------------------- roof
@@ -126,7 +219,7 @@ def build_roof(piece, name):
     """A hipped roof: fascia, a concave slope with upturned corners, half-round tiles down every side, hip ridges."""
     P = piece["params"]
     prof = piece["profile"]
-    cx, cy = piece["center"][:2]
+    cx, cy = 0.0, 0.0
     z0, ex, ey = prof[0]
     # the fascia ends where the size starts to shrink; the slope ends at the smallest ring
     k1 = max(i for i, (z, sx, sy) in enumerate(prof) if abs(sx - ex) < 1e-3 * max(ex, 1) and abs(sy - ey) < 1e-3 * max(ey, 1))
@@ -138,11 +231,30 @@ def build_roof(piece, name):
     rows = max(3, int(P.get("rows", 6)))
     power = float(P.get("concave", 1.45))
     lift = float(P.get("corner_lift", 0.35)) * H
+    real = piece.get("roof") or {}
+    measured = bool(real) and real.get("lift", 0) > 1e-6 and "corner_lift" not in P and "concave" not in P
+    if measured:                                           # the model has its own eaves: its rise, its level stretch, its slope
+        ex = ey = real["eave"]
+        z1 = z0 + max(real["fascia"], 0.02 * H)
+        lift, flat = real["lift"], real["flat"]
+        line = [(ex, z1)] + [(w, z) for z, w in real["line"]]
+        tx = ty = line[-1][0]
+        H = max(line[-1][1] - z1, 1e-6)
 
     def surf(xn, yn, t, dz=0.0):
         """A point of the roof: xn, yn in -1..1 across the ring at height t (0 eave, 1 top)."""
         wx, wy = ex + (tx - ex) * t, ey + (ty - ey) * t
-        z = z1 + H * (t ** power) + lift * (abs(xn) * abs(yn)) ** 1.5 * (1 - t) ** 2 + dz
+        if measured:
+            k = max(i for i in range(len(line) - 1) if line[i][0] >= wx - 1e-9)
+            (wa, za), (wb, zb) = line[k], line[k + 1]
+            f = (wa - wx) / max(wa - wb, 1e-9)
+            f = f * f * (3 - 2 * f) if 0 < k < len(line) - 2 else f
+            zl = za + (zb - za) * min(max(f, 0.0), 1.0)
+            u = min(abs(xn), abs(yn)) if max(abs(xn), abs(yn)) > 0.999 else abs(xn) * abs(yn)
+            rise = min(max((u - flat) / max(1 - flat, 1e-6), 0.0), 1.0)
+            z = zl + lift * rise * rise * (3 - 2 * rise) * (1 - t) ** 2 + dz
+        else:
+            z = z1 + H * (t ** power) + lift * (abs(xn) * abs(yn)) ** 1.5 * (1 - t) ** 2 + dz
         return Vector((cx + xn * wx / 2, cy + yn * wy / 2, z))
 
     def ring_params():
@@ -249,7 +361,7 @@ def build_body(piece, name):
     """A storey: posts at the corners and between bays, beams, and a recessed panel (or lattice, or door) in every bay."""
     P = piece["params"]
     prof = piece["profile"]
-    cx, cy = piece["center"][:2]
+    cx, cy = 0.0, 0.0
     z0, sx, sy = prof[0]
     z1 = prof[-1][0]
     bays = (max(1, int(P.get("bays_x", 3))), max(1, int(P.get("bays_y", 3))))
@@ -332,7 +444,7 @@ def build_body(piece, name):
 
 # ----------------------------------------------------------------------------------------------------------- stairs
 def build_stairs(piece, name):
-    cx, cy = piece["center"][:2]
+    cx, cy = 0.0, 0.0
     z0, sx, sy = piece["profile"][0]
     z1 = piece["profile"][-1][0]
     n = max(2, int(piece["params"].get("steps", 5)))
@@ -353,26 +465,256 @@ def build_stairs(piece, name):
 
 
 # ------------------------------------------------------------------------------------------------------------- keep
-def build_keep(piece, name):
-    """The original piece, cleaned: welded, triangles paired back into quads, sharp edges bevelled."""
+TEXTURES = PLAN.get("textures") or {}
+MIN_TEXEL = 0.22                                           # mm: a texel smaller than this at print size is merged with its neighbours
+_SHRUNK = {}
+
+
+def _drawn(piece):
+    return any(m in TEXTURES for m in piece.get("triangle_materials") or [])
+
+
+def _levels(mat, factor):
+    """A texture's height steps with ``factor`` texels merged into one."""
+    key = (mat, factor)
+    if key not in _SHRUNK:
+        src = TEXTURES[mat]["levels"]
+        h, w = len(src) // factor, len(src[0]) // factor
+        out = []
+        for y in range(h):
+            row = []
+            for x in range(w):
+                cell = [src[y * factor + j][x * factor + i] for j in range(factor) for i in range(factor)]
+                row.append(int(round(sum(cell) / len(cell))))
+            out.append(row)
+        _SHRUNK[key] = out
+    return _SHRUNK[key]
+
+
+def _cuts(lv, along_u, a, b, lo, hi):
+    """Where a face running from a to b across the texture crosses a change of height: positions 0..1 along it, each
+    doubled so the step gets a short sloped wall, and the size of a texel in the same measure."""
+    h, w = len(lv), len(lv[0])
+    n = w if along_u else h
+    span = b - a
+    if abs(span) < 1e-9:
+        return None, 0.0
+    other = range(h) if along_u else range(w)
+    if hi - lo < 0.999:                                    # only the rows or columns this face really covers
+        m = h if along_u else w
+        first, last = math.floor(min(lo, hi) * m + 1e-6), math.ceil(max(lo, hi) * m - 1e-6)
+        other = [k % m for k in range(first, last)]
+    texel = 1.0 / (n * abs(span))
+    out = []
+    for k in range(math.floor(min(a, b) * n) + 1, math.ceil(max(a, b) * n)):
+        c0, c1 = (k - 1) % n, k % n
+        if along_u:
+            changed = any(lv[(h - 1 - r) % h][c0] != lv[(h - 1 - r) % h][c1] for r in other)
+        else:
+            changed = any(lv[(h - 1 - c0) % h][r] != lv[(h - 1 - c1) % h][r] for r in other)
+        if changed:
+            s = (k / n - a) / span
+            e = 0.22 * texel
+            if e < s < 1 - e:
+                out += [s - e, s + e]
+    return sorted(out), texel
+
+
+def emboss(bm, uv_layer, piece, skip=()):
+    """What the textures draw, modelled into the faces: every quad whose texture lies square on it becomes a grid of
+    quads that follows the texels where the height changes, raised and sunk in steps with a short slope between."""
+    names = sorted(set(piece.get("triangle_materials") or []))
+    done = 0
+    for face in list(bm.faces):
+        if len(face.verts) != 4 or face.material_index >= len(names):
+            continue
+        mat = names[face.material_index]
+        if mat in skip or mat not in TEXTURES:
+            continue
+        loops = list(face.loops)
+        v = [l.vert for l in loops]
+        uv = [l[uv_layer].uv.copy() for l in loops]
+        ea, eb = uv[1] - uv[0], uv[3] - uv[0]
+        scale = max(ea.length, eb.length, 1e-9)
+        if (uv[0] + ea + eb - uv[2]).length > 0.02 * scale:
+            continue
+        if abs(ea.y) < 0.02 * scale and abs(eb.x) < 0.02 * scale:
+            a_u = True
+        elif abs(ea.x) < 0.02 * scale and abs(eb.y) < 0.02 * scale:
+            a_u = False
+        else:
+            continue
+        src = TEXTURES[mat]["levels"]
+        la, lb = (v[1].co - v[0].co).length, (v[3].co - v[0].co).length
+        da, db = (abs(ea.x), abs(eb.y)) if a_u else (abs(ea.y), abs(eb.x))
+        wa, wb = (len(src[0]), len(src)) if a_u else (len(src), len(src[0]))
+        if da < 1e-9 or db < 1e-9:
+            continue
+        texel_mm = min(la / (da * wa), lb / (db * wb))
+        factor = max(1, math.ceil(MIN_TEXEL / max(texel_mm, 1e-9)))
+        if min(len(src), len(src[0])) // factor < 2:
+            continue
+        lv = _levels(mat, factor)
+        h, w = len(lv), len(lv[0])
+        if a_u:
+            ss, _ = _cuts(lv, True, uv[0].x, uv[1].x, uv[0].y, uv[3].y)
+            ts, _ = _cuts(lv, False, 1 - uv[0].y, 1 - uv[3].y, uv[0].x, uv[1].x)
+        else:
+            ss, _ = _cuts(lv, False, 1 - uv[0].y, 1 - uv[1].y, uv[0].x, uv[3].x)
+            ts, _ = _cuts(lv, True, uv[0].x, uv[3].x, uv[0].y, uv[1].y)
+        if ss is None or ts is None or (not ss and not ts):
+            continue
+        ss, ts = [0.0] + ss + [1.0], [0.0] + ts + [1.0]
+        if (len(ss) - 1) * (len(ts) - 1) > 6000:
+            continue
+        step = TEXTURES[mat]["depth"] / 3.0
+        normal = face.normal.copy()
+        grid = []
+        for j, t in enumerate(ts):
+            row = []
+            for i, s in enumerate(ss):
+                corner = {(0, 0): v[0], (len(ss) - 1, 0): v[1], (len(ss) - 1, len(ts) - 1): v[2], (0, len(ts) - 1): v[3]}.get((i, j))
+                if corner is not None:
+                    row.append(corner)
+                    continue
+                p = v[0].co.lerp(v[1].co, s).lerp(v[3].co.lerp(v[2].co, s), t)
+                if 0 < i < len(ss) - 1 and 0 < j < len(ts) - 1:
+                    q = uv[0] + ea * s + eb * t
+                    p = p + normal * (lv[int(math.floor((1 - q.y) * h)) % h][int(math.floor(q.x * w)) % w] * step)
+                row.append(bm.verts.new(p))
+            grid.append(row)
+        index = face.material_index
+        bmesh.ops.delete(bm, geom=[face], context="FACES_ONLY")
+        for j in range(len(ts) - 1):
+            for i in range(len(ss) - 1):
+                f = bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
+                f.material_index = index
+        done += 1
+    return done
+
+
+def build_keep(piece, name, kind="originales", skip=()):
+    """The original piece, cleaned: welded, triangles paired back into quads, what its textures draw modelled into
+    its faces, sharp edges bevelled."""
     bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("uv")
     verts = [bm.verts.new(p) for p in piece["points"]]
-    for tri in piece["triangles"]:
+    names = sorted(set(piece.get("triangle_materials") or []))
+    uvs = piece.get("uvs") or []
+    for k, tri in enumerate(piece["triangles"]):
         try:
-            bm.faces.new([verts[i] for i in tri])
+            face = bm.faces.new([verts[i] for i in tri])
         except ValueError:
-            pass
+            continue
+        if k < len(uvs):
+            face.material_index = names.index(piece["triangle_materials"][k])
+            for loop, c in zip(face.loops, uvs[k]):
+                loop[uv_layer].uv = c
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
     bmesh.ops.join_triangles(bm, faces=bm.faces, angle_face_threshold=math.radians(2), angle_shape_threshold=math.radians(60))
-    finish(bm, name, "originales", bevel=float(piece["params"].get("bevel", 0.15)))
+    weighted = False
+    if uvs and piece["params"].get("emboss", 1) and _drawn(piece):
+        bm.normal_update()
+        weight = bm.edges.layers.float.new("bevel_weight_edge")
+        for e in bm.edges:                                 # the bevel stays on the piece's own corners, not on the drawing
+            if len(e.link_faces) == 2 and e.calc_face_angle(0.0) > math.radians(35):
+                e[weight] = 1.0
+        weighted = emboss(bm, uv_layer, piece, skip) > 0
+    finish(bm, name, kind, bevel=float(piece["params"].get("bevel", 0.15)), weighted=weighted)
 
 
-BUILDERS = {"block": build_block, "lathe": build_lathe, "roof": build_roof, "body": build_body, "stairs": build_stairs, "keep": build_keep}
+# ------------------------------------------------------------------------------------------------------------ tiled
+def build_tiled(piece, name):
+    """A roof kept as the model has it, with half-round tiles laid down its slopes: each tile follows the faces under
+    it from the top of the slope to the eave and stops where they stop (a hip, a hatch, a platform)."""
+    P = piece["params"]
+    on = set(piece.get("tiles_on") or [])
+    build_keep(piece, name, kind="tejados", skip=on)
+    pts = [Vector(p) for p in piece["points"]]
+    wide = max(piece["size"][0], piece["size"][1])
+    n = max(4, int(P.get("tiles", 14)))
+    pitch = wide / n
+    r = float(P.get("tile_radius", 0.0)) or pitch * 0.22
+    groups = {}
+    for tri, mat in zip(piece["triangles"], piece.get("triangle_materials") or []):
+        if mat not in on:
+            continue
+        a, b, c = (pts[i] for i in tri)
+        nrm = (b - a).cross(c - a)
+        if nrm.length < 1e-9:
+            continue
+        nrm.normalize()
+        if nrm.z < 0:
+            nrm = -nrm
+        if not 0.2 < nrm.z < 0.98:
+            continue
+        d = 0 if abs(nrm.x) >= abs(nrm.y) else 1           # the slope runs down along this axis
+        groups.setdefault((d, 1 if nrm[d] > 0 else -1), []).append((a, b, c))
+    arc = 6
+    bm = bmesh.new()
+    for (d, sign), faces in groups.items():
+        o = 1 - d
+        lo = min(v[o] for f in faces for v in f)
+        hi = max(v[o] for f in faces for v in f)
+        k = math.ceil((lo + r) / pitch - 0.5)
+        while (k + 0.5) * pitch < hi - r:
+            at = (k + 0.5) * pitch
+            k += 1
+            segs = []
+            for f in faces:
+                cut = []
+                for p, q in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+                    if (p[o] - at) * (q[o] - at) < 0:
+                        cut.append(p.lerp(q, (at - p[o]) / (q[o] - p[o])))
+                if len(cut) == 2 and (cut[0] - cut[1]).length > 1e-6:
+                    segs.append(sorted(cut, key=lambda v: sign * v[d]))          # from the top of the slope to the eave
+            segs.sort(key=lambda sg: sign * sg[0][d])
+            lines = []
+            for sg in segs:
+                if lines and (lines[-1][-1] - sg[0]).length < 0.02 * pitch:
+                    lines[-1].append(sg[1])
+                else:
+                    lines.append(list(sg))
+            across = Vector((1, 0, 0)) if o == 0 else Vector((0, 1, 0))
+            for line in lines:
+                if sum((b - a).length for a, b in zip(line, line[1:])) < 4 * r:
+                    continue
+                path = [line[0]]
+                for p in line[1:]:                         # no stations closer than a tile is wide
+                    if (p - path[-1]).length > 1.5 * r:
+                        path.append(p)
+                    else:
+                        path[-1] = p if p is line[-1] else path[-1]
+                if len(path) < 2:
+                    continue
+                path[-1] = path[-1] + (path[-1] - path[-2]).normalized() * r * 0.6   # the tile end hangs a little over the eave
+                sections = []
+                for j, p in enumerate(path):
+                    ahead = (path[min(j + 1, len(path) - 1)] - path[max(j - 1, 0)]).normalized()
+                    normal = across.cross(ahead).normalized()
+                    if normal.z < 0:
+                        normal = -normal
+                    sections.append([bm.verts.new(p + across * (r * math.cos(math.pi * a / arc)) + normal * (r * math.sin(math.pi * a / arc))) for a in range(arc + 1)])
+                for a, b in zip(sections, sections[1:]):
+                    for q in range(arc):
+                        bm.faces.new((a[q], a[q + 1], b[q + 1], b[q]))
+                for e, flip in ((sections[-1], False), (sections[0], True)):       # round ends: two quads and a triangle
+                    for q in ((6, 5, 1, 0), (5, 4, 2, 1), (4, 3, 2)):
+                        vs = [e[i] for i in q]
+                        bm.faces.new(vs[::-1] if flip else vs)
+    if len(bm.verts):
+        finish(bm, name + " tejas", "tejados", smooth=True, weld=False)
+    else:
+        bm.free()
+
+
+BUILDERS = {"tiled": build_tiled, "block": build_block, "lathe": build_lathe, "sweep": build_sweep, "roof": build_roof, "body": build_body, "stairs": build_stairs, "keep": build_keep}
 for piece in PLAN["pieces"]:
     kind = piece.get("kind", "keep")
     if kind == "drop":
         continue
     before = len(STATS)
+    PLACE["center"], PLACE["yaw"] = tuple(piece["center"][:2]), float(piece.get("yaw", 0.0))
     try:
         BUILDERS.get(kind, build_keep)(piece, piece["name"])
     except Exception as exc:                                # one piece never stops the rest: it falls back to the original

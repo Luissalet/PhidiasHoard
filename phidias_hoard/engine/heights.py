@@ -144,6 +144,23 @@ def height_map(albedo: np.ndarray | None, normal: np.ndarray | None, recipe: str
     return (-h if invert else h).astype(np.float32)
 
 
+def texel_levels(albedo: np.ndarray | None, levels: int = 4, max_px: int = 64) -> np.ndarray | None:
+    """A pixel-art texture as a few height steps, one value per texel: 0 is the level most of the texture sits at,
+    positive is raised (lighter), negative is sunk (darker). None when the texture is one flat tone."""
+    if albedo is None or min(albedo.shape[:2]) < 2:
+        return None
+    lum = luminance(albedo)
+    while max(lum.shape) > max_px and min(lum.shape) >= 4:
+        h, w = lum.shape[0] // 2 * 2, lum.shape[1] // 2 * 2
+        lum = lum[:h, :w].reshape(h // 2, 2, w // 2, 2).mean((1, 3))
+    lo, hi = np.percentile(lum, [2, 98])
+    if hi - lo < 0.06:
+        return None
+    idx = np.clip(((lum - lo) / (hi - lo) * levels).astype(np.int64), 0, levels - 1)
+    base = int(np.bincount(idx.ravel(), minlength=levels).argmax())
+    return (idx - base).astype(np.int8)
+
+
 def sample(height: np.ndarray, uv: np.ndarray) -> np.ndarray:
     """Bilinear, tiling. ``uv`` (..., 2) with the origin bottom-left."""
     h, w = height.shape

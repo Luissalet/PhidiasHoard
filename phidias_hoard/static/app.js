@@ -8,8 +8,8 @@ const state = { project: null, which: 'before', library: null, projects: [], pol
 const RECIPES = [['auto', 'Automática'], ['normal', 'Mapa de normales'], ['relief', 'Relieve'], ['lines', 'Solo líneas'], ['steps', 'Escalones'], ['flat', 'Liso'], ['drop', 'Quitar']];
 const PATTERNS = [['', 'Sin detalle añadido'], ['rock', 'Roca'], ['cracks', 'Grietas'], ['cobble', 'Adoquines'], ['bricks', 'Ladrillo'], ['planks', 'Tablas'], ['tiles', 'Tejas'], ['bark', 'Corteza'], ['ripples', 'Ondas'], ['flutes', 'Estrías de columna']];
 const WHY = { before: 'Original', remodel: 'Remodelado', sculpt: 'Esculpido', closed: 'Sólido cerrado' };
-const KINDS = [['roof', 'Tejado'], ['body', 'Cuerpo con pilares'], ['block', 'Bloque'], ['lathe', 'Torneado'], ['stairs', 'Escalera'], ['keep', 'Original limpio'], ['drop', 'Quitar']];
-const PARAMS = { roof: [['tiles', 'Tejas por lado', 14], ['rows', 'Tramos', 6], ['corner_lift', 'Alero levantado', 0.35], ['concave', 'Curva', 1.45]], body: [['bays_x', 'Vanos frente', 3], ['bays_y', 'Vanos lado', 3], ['bars', 'Barrotes', 5]], block: [['bevel', 'Bisel (mm)', 0.25]], lathe: [['segments', 'Segmentos', 24]], stairs: [['steps', 'Peldaños', 5]], keep: [['bevel', 'Bisel (mm)', 0.15]], drop: [] };
+const KINDS = [['roof', 'Tejado'], ['tiled', 'Tejado tal cual, con tejas'], ['sweep', 'Viga'], ['body', 'Cuerpo con pilares'], ['block', 'Bloque'], ['lathe', 'Torneado'], ['stairs', 'Escalera'], ['keep', 'Original limpio'], ['drop', 'Quitar']];
+const PARAMS = { roof: [['tiles', 'Tejas por lado', 14], ['rows', 'Tramos', 6], ['corner_lift', 'Alero levantado', 0.35], ['concave', 'Curva', 1.45]], body: [['bays_x', 'Vanos frente', 3], ['bays_y', 'Vanos lado', 3], ['bars', 'Barrotes', 5]], block: [['bevel', 'Bisel (mm)', 0.25], ['emboss', 'Dibujo en relieve (0/1)', 1]], lathe: [['segments', 'Segmentos', 24], ['sides', 'Lados (0 redondo)', 0], ['flutes', 'Estrías', 0]], tiled: [['tiles', 'Tejas a lo ancho', 14], ['emboss', 'Dibujo en relieve (0/1)', 1]], sweep: [['emboss', 'Dibujo en relieve (0/1)', 1]], stairs: [['steps', 'Peldaños', 5]], keep: [['bevel', 'Bisel (mm)', 0.15], ['emboss', 'Dibujo en relieve (0/1)', 1]], drop: [] };
 
 // ------------------------------------------------------------------ 3-D view
 const view = (() => {
@@ -223,6 +223,7 @@ function refreshButtons() {
   $('btn-sculpt').disabled = !p || busy;
   $('btn-direct').disabled = !p || busy;
   $('btn-remodel').disabled = !p || busy;
+  $('btn-remodel-ai').disabled = !p || busy;
   $('btn-remodel').textContent = r.remodel ? 'Volver a remodelar' : 'Remodelar';
   const rm = state.which === 'remodel';
   $('btn-download').textContent = rm ? 'Descargar .blend' : 'Descargar STL';
@@ -267,7 +268,7 @@ async function drawPieces() {
   const save = async (type, change) => { try { await call('remodel_set', { project_id: p.id, types: { [type]: change } }); drawPieces(); } catch (err) { fail(err); } };
   for (const t of plan.types) {
     const kind = el('select', { class: 'input', 'aria-label': `Qué es la pieza ${t.type}`, onchange: (ev) => save(t.type, { kind: ev.target.value }) },
-      KINDS.map(([v, txt]) => el('option', { value: v, text: txt, selected: v === t.kind })));
+      KINDS.filter(([v]) => t.allowed.includes(v)).map(([v, txt]) => el('option', { value: v, text: txt, selected: v === t.kind })));
     const params = el('div', { class: 'pparams' }, (PARAMS[t.kind] || []).map(([key, label, dflt]) => el('label', {}, label,
       el('input', { class: 'input', type: 'number', step: 'any', value: t.params[key] ?? dflt, onchange: (ev) => save(t.type, { params: { [key]: +ev.target.value } }) }))));
     const mats = Object.keys(t.materials).slice(0, 3).join(', ');
@@ -279,17 +280,34 @@ async function drawPieces() {
 }
 
 function drawDirector() {
-  const d = state.project.director, card = $('director-card'), box = $('director-log');
+  const rd = state.project.remodel_director, sd = state.project.director;
+  const d = (rd && (!sd || rd.at >= sd.at)) ? rd : sd, card = $('director-card'), box = $('director-log');
   card.hidden = !d;
   if (!d) return;
   $('director-model').textContent = d.model || '';
   box.replaceChildren();
   for (const step of d.log) {
+    if (step.types) {
+      const k = Object.keys(step.types).length;
+      const head = step.step === 'piezas' ? 'Lectura de las piezas' : `${step.step[0].toUpperCase()}${step.step.slice(1)}: ${step.verdict === 'redo' ? 'rehacer' : 'aceptada'}`;
+      box.append(el('div', { class: 'dstep' }, el('b', { text: head }), el('div', { text: step.scene || step.notes || '' }),
+        k ? el('div', { class: 'dchg', text: `${k} tipo${k === 1 ? '' : 's'} de pieza decidido${k === 1 ? '' : 's'}` }) : null));
+      continue;
+    }
     const n = Object.keys(step.materials || {}).length;
     const head = step.step === 'materiales' ? 'Lectura de los materiales' : `${step.step[0].toUpperCase()}${step.step.slice(1)}: ${step.verdict === 'redo' ? 'rehacer' : 'aceptada'}`;
     box.append(el('div', { class: 'dstep' }, el('b', { text: head }), el('div', { text: step.scene || step.notes || '' }),
       n ? el('div', { class: 'dchg', text: `${n} material${n === 1 ? '' : 'es'} cambiado${n === 1 ? '' : 's'}: ${Object.keys(step.materials).slice(0, 6).join(', ')}${n > 6 ? '…' : ''}` }) : null));
   }
+}
+
+async function startRemodelDirect() {
+  const wish = el('textarea', { class: 'input', rows: '3', placeholder: 'Opcional: qué quieres (celosías en los pisos altos, puerta en el frente, columnas estriadas…)' });
+  const r = await modal({ title: 'Remodelar con IA', body: [
+    el('p', { text: 'El modelo mira cada tipo de pieza del original y sus texturas, decide qué es y con qué parámetros se reconstruye, mira la construcción junto al original y la corrige. Sus decisiones sustituyen a las del panel Piezas.' }), wish],
+    buttons: [{ label: 'Cancelar', value: null }, { label: 'Empezar', value: 'ok', kind: 'primary' }] });
+  if (!r) return;
+  try { watchJob((await call('remodel_start', { project_id: state.project.id, direct: true, wish: wish.value })).id); } catch (err) { fail(err); }
 }
 
 async function startDirect() {
@@ -384,15 +402,15 @@ function watchJob(id) {
   const tick = async () => {
     let j;
     try { j = await call('job_status', { job_id: id }); } catch (err) { clearInterval(state.poll); state.poll = null; $('job').hidden = true; refreshButtons(); return; }
-    $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : (j.kind === 'direct' ? 'Dirigiendo' : (j.kind === 'remodel' ? 'Remodelando' : 'Esculpiendo'))} · ${j.stage}`;
+    $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : (j.kind === 'direct' ? 'Dirigiendo' : (j.kind.startsWith('remodel') ? 'Remodelando' : 'Esculpiendo'))} · ${j.stage}`;
     $('job-fill').style.width = `${Math.round(j.progress * 100)}%`;
     if (j.state === 'done' || j.state === 'error') {
       clearInterval(state.poll); state.poll = null; $('job').hidden = true;
       if (j.state === 'error') toast(j.error, 'err', 12000);
-      else toast(j.kind === 'close' ? 'Sólido cerrado listo.' : (j.kind === 'remodel' ? 'Remodelado listo.' : 'Esculpido listo.'), 'ok');
+      else toast(j.kind === 'close' ? 'Sólido cerrado listo.' : (j.kind.startsWith('remodel') ? 'Remodelado listo.' : 'Esculpido listo.'), 'ok');
       if (state.project && state.project.id === j.project_id) {
         const p = await call('project_get', { project_id: j.project_id });
-        if (j.state === 'done') state.which = j.kind === 'close' ? 'closed' : (j.kind === 'remodel' ? 'remodel' : 'sculpt');
+        if (j.state === 'done') state.which = j.kind === 'close' ? 'closed' : (j.kind.startsWith('remodel') ? 'remodel' : 'sculpt');
         setProject(p, true);
       }
       loadProjects();
@@ -447,6 +465,7 @@ for (const b of $('view-seg').children) b.addEventListener('click', () => { stat
 $('btn-sculpt').addEventListener('click', () => startJob('sculpt_start'));
 $('btn-direct').addEventListener('click', startDirect);
 $('btn-remodel').addEventListener('click', () => startJob('remodel_start'));
+$('btn-remodel-ai').addEventListener('click', startRemodelDirect);
 $('wire').addEventListener('change', (ev) => view.showEdges(ev.target.checked));
 $('btn-download-obj').addEventListener('click', () => { window.location.href = `/api/projects/${state.project.id}/download/remodel.obj`; });
 $('btn-close').addEventListener('click', () => startJob('close_start'));

@@ -19,7 +19,7 @@ import numpy as np
 from . import __version__
 from .config import Config, Settings
 from . import director
-from .engine import export, finish, meshio, patterns, preview, recipes
+from .engine import export, finish, heights, meshio, patterns, preview, recipes
 from .llm import ModelClient
 from .remodel import build as remodel_build
 from .remodel import pieces as remodel_pieces
@@ -331,7 +331,7 @@ class Services:
         for p in parts:
             key = str(p["type"])
             choice = saved.get(key)
-            if choice and choice.get("kind") in remodel_pieces.KINDS:
+            if choice and choice.get("kind") in remodel_pieces.allowed(p):
                 p["kind"], p["params"] = choice["kind"], dict(choice.get("params") or {})
             else:
                 p["kind"], p["params"] = remodel_pieces.guess(p, st.size_mm)
@@ -339,12 +339,20 @@ class Services:
             t = types.setdefault(key, {"type": p["type"], "kind": p["kind"], "params": p["params"], "count": 0, "pieces": [],
                                        "size_mm": p["size"], "triangles": p["triangles_count"], "levels": len(p["profile"]),
                                        "materials": p["materials"], "what": (choice or {}).get("what", ""),
-                                       "chosen": bool(choice)})
+                                       "chosen": bool(choice), "allowed": remodel_pieces.allowed(p)})
             t["count"] += 1
             t["pieces"].append(p["id"])
         out: dict[str, Any] = {"project_id": pid, "pieces": len(parts), "types": list(types.values()), "kinds": list(remodel_pieces.KINDS)}
         if full:
             out["_parts"] = parts
+            out["_textures"] = {}                          # what each texture draws, as height steps to model into the faces
+            for name, info in project["materials"].items():
+                mat = scene.materials[info["index"]]
+                if info.get("recipe") in ("flat", "drop") or mat.atlas:
+                    continue
+                lv = heights.texel_levels(mat.albedo)
+                if lv is not None:
+                    out["_textures"][name] = {"levels": (-lv if info.get("invert") else lv).tolist(), "depth": float(info.get("depth_mm", 0.6))}
         return out
 
     def remodel_set(self, pid: str, changes: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -358,19 +366,61 @@ class Services:
             cur = saved.get(key) or {"kind": known[key]["kind"], "params": dict(known[key]["params"])}
             kind = change.get("kind")
             if kind is not None:
-                if kind not in remodel_pieces.KINDS:
-                    raise PhidiasError("invalid", "kind debe ser " + ", ".join(remodel_pieces.KINDS) + ".")
+                if kind not in known[key]["allowed"]:
+                    raise PhidiasError("invalid", f"La pieza {key} no tiene forma de «{kind}».",
+                                       "Para esta pieza valen: " + ", ".join(known[key]["allowed"]) + ".")
                 if kind != cur["kind"]:
                     cur = {"kind": kind, "params": {}}
             if isinstance(change.get("params"), dict):
-                cur["params"] = {**cur.get("params", {}), **{k: v for k, v in change["params"].items() if v is not None}}
+                cur["params"] = remodel_pieces.clean_params(cur["kind"], {**cur.get("params", {}), **change["params"]})
             if isinstance(change.get("what"), str):
                 cur["what"] = change["what"][:160]
             saved[key] = cur
         self.store.save(project)
         return self.remodel_plan(pid)
 
-    def start_remodel(self, pid: str) -> dict[str, Any]:
+    def piece_sheets(self, pid: str, types: list[dict[str, Any]], per_sheet: int = 6) -> list[bytes]:
+        """Pictures of piece types: the original piece from two sides and the textures on it, with its number."""
+        from PIL import Image, ImageDraw
+        plan = self.remodel_plan(pid, full=True)
+        parts = {p["type"]: p for p in reversed(plan["_parts"])}
+        scene = self.scene(pid)
+        by_name = {m.name: m for m in scene.materials}
+        sheets = []
+        for at in range(0, len(types), per_sheet):
+            rows = []
+            for t in types[at: at + per_sheet]:
+                p = parts[t["type"]]
+                P, F = np.asarray(p["points"], float), np.asarray(p["triangles"], np.int32)
+                tiles = [preview.render(P, F, yaw=30, pitch=25, size=200), preview.render(P, F, yaw=120, pitch=12, size=200)]
+                for name in list(p["materials"])[:2]:
+                    mat = by_name.get(name)
+                    if mat is not None and mat.albedo is not None:
+                        img = Image.fromarray(mat.albedo[..., :3])
+                        tiles.append(img.resize((200, 200), Image.NEAREST if max(img.size) < 200 else Image.BILINEAR))
+                row = Image.new("RGB", (4 * 206, 220), (24, 22, 28))
+                for i, tile in enumerate(tiles[:4]):
+                    row.paste(tile, (i * 206, 20))
+                ImageDraw.Draw(row).text((4, 4), f"type {t['type']}  x{t['count']}  {' x '.join(f'{v:.0f}' for v in t['size_mm'])} mm   (piece from two sides | its textures)", fill=(240, 230, 210))
+                rows.append(row)
+            sheet = Image.new("RGB", (rows[0].width, 220 * len(rows)), (24, 22, 28))
+            for i, r in enumerate(rows):
+                sheet.paste(r, (0, i * 220))
+            sheets.append(preview.png(sheet))
+        return sheets
+
+    def start_remodel(self, pid: str, direct: bool = False, rounds: int = 0, wish: str = "") -> dict[str, Any]:
+        if direct:
+            status = self.llm.status()
+            if not status.get("available"):
+                raise PhidiasError("unavailable", status.get("reason") or "No hay modelo con visión disponible.",
+                                   "Comprueba que Faustus y las Sparks están en marcha, o indica un servidor en Ajustes.")
+            if not (finish.find_blender(self.settings["blender"]) or remodel_build.has_bpy()):
+                raise PhidiasError("unavailable", "No encuentro Blender en este equipo.", "Instálalo o indica su ruta en Ajustes.")
+            return self._enqueue("remodel_direct", pid, {"rounds": int(rounds or self.settings["director_rounds"]), "wish": wish})
+        return self._start_remodel_plain(pid)
+
+    def _start_remodel_plain(self, pid: str) -> dict[str, Any]:
         if not (finish.find_blender(self.settings["blender"]) or remodel_build.has_bpy()):
             raise PhidiasError("unavailable", "No encuentro Blender en este equipo.", "Instálalo o indica su ruta en Ajustes.")
         return self._enqueue("remodel", pid)
@@ -380,10 +430,11 @@ class Services:
         say("separando piezas", 0.05)
         plan = self.remodel_plan(pid, full=True)
         parts = plan.pop("_parts")
+        textures = plan.pop("_textures")
         pdir = self.store.dir(pid)
         say("Blender: construyendo las piezas", 0.2)
         try:
-            stats = remodel_build.run({"pieces": parts}, pdir / "remodel", finish.find_blender(self.settings["blender"]))
+            stats = remodel_build.run({"pieces": parts, "textures": textures}, pdir / "remodel", finish.find_blender(self.settings["blender"]))
         except Exception as exc:
             raise PhidiasError("failed", str(exc)) from exc
         say("vista", 0.85)
@@ -474,6 +525,8 @@ class Services:
                 job["result"] = self._do_sculpt(job["project_id"], say)
             elif job["kind"] == "remodel":
                 job["result"] = self._do_remodel(job["project_id"], say)
+            elif job["kind"] == "remodel_direct":
+                job["result"] = director.run_remodel(self, job["project_id"], job["params"]["rounds"], job["params"]["wish"], say)
             elif job["kind"] == "direct":
                 job["result"] = self._do_direct(job["project_id"], say, job["params"])
             else:
@@ -587,7 +640,7 @@ class Services:
             BP, BF = self.mesh(pid, "before")
             if region is None:                             # the result sits on its base: line the original up with it
                 BP = BP + np.array([0, 0, float(P[:, 2].max() - BP[:, 2].max())])
-            img = preview.side_by_side([preview.render(BP, BF, yaw=y, pitch=p, size=size, region=region), img], ["original", "esculpido"])
+            img = preview.side_by_side([preview.render(BP, BF, yaw=y, pitch=p, size=size, region=region), img], ["original", "remodelado" if which == "remodel" else "esculpido"])
         return preview.png(img)
 
     def _export_remodel(self, project: dict[str, Any], folder: str) -> dict[str, Any]:

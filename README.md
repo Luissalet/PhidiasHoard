@@ -8,8 +8,16 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   again in Blender with modelling operations, in clean quads, using the original only as the reference for sizes and
   positions. Hipped roofs get real half-round tiles, hip ridges, a concave slope and upturned eaves; storeys get
   posts, beams and a recessed panel, lattice or door in every bay; turned pieces (spires, columns) are lathed from
-  the piece's own profile; slabs and plinths follow their profile with bevels; stairs get real steps; anything else
-  is kept as the original piece cleaned into quads. Pieces of the same shape are one type: you choose what each type
+  the piece's own profile, as a round, as a prism with the sides the piece has (a hexagonal ring stays hexagonal)
+  or as a ring with its hole; slabs and plinths follow their profile with bevels; beams and hip ridges follow their
+  own line, straight or curved; stairs get real steps; anything else is kept as the original piece cleaned into
+  quads. A roof whose eaves are curved in the game model is rebuilt with that curve, measured, and whole even when
+  the game left out the sides nobody sees; a roof with more to it than four slopes (a platform, a hatch) keeps its
+  shape and gets the tiles laid down its slopes. What the textures draw (panels, frames, bands, joints) is modelled
+  into the faces: each quad becomes a grid that follows the texels where the height changes, raised and sunk in
+  steps. A piece is only offered the builders its shape really fits, so sloping ground is never turned into a
+  block or a roof. The family's vision model can choose what each type is and its parameters, look at the result
+  next to the original and correct it ("Remodelar con IA"). Pieces of the same shape are one type: you choose what each type
   is and its parameters (tiles per side, bays, bars, segments). The result is a `.blend` with one object per piece
   and the bevels as live modifiers, and an OBJ in quads. The 3D view and the pictures draw the mesh's own edges.
 - **Library**: point it at the folders where you keep game models. It lists every OBJ (with its MTL and textures),

@@ -308,3 +308,63 @@ def test_budget_with_cutouts_and_sheets_reports_its_real_detail(tmp_path):
     rec = S.MaterialRecipe.from_dict({"recipe": "flat", "cutout": True, "enrich": {"pattern": "bark", "size_mm": 1, "depth_mm": 0.2}})
     out = S.sculpt(scene, {"leaf": rec}, S.SculptSettings(size_mm=80, min_edge_mm=0.1, max_faces=20_000, ground=False))
     assert out.info["stopped"] == "budget" and out.info["edge_mm"] > 0.1 and out.info["sheet_triangles"] > 0
+
+
+def _scene(points, tris, uv=None, materials=("m",), mat_of=None, albedo=None):
+    from phidias_hoard.engine.meshio import Material, Scene
+
+    P = np.array(points, np.float64)
+    F = np.array(tris, np.int64)
+    UV = np.zeros((len(F), 3, 2), np.float32) if uv is None else np.array(uv, np.float32)
+    M = np.zeros(len(F), np.int64) if mat_of is None else np.array(mat_of, np.int64)
+    return Scene(P=P, F=F, UV=UV, M=M, materials=[Material(n, albedo=albedo) for n in materials])
+
+
+def test_pieces_are_measured_for_what_they_are():
+    from phidias_hoard.remodel import pieces
+
+    # a hexagonal ring
+    pts, tris = [], []
+    for z in (0.0, 1.0):
+        for r in (2.0, 1.6):
+            pts += [(r * np.cos(np.radians(a)), r * np.sin(np.radians(a)), z) for a in range(0, 360, 60)]
+    for i in range(6):
+        j = (i + 1) % 6
+        tris += [(i, j, 12 + j), (i, 12 + j, 12 + i), (6 + i, 18 + j, 6 + j), (6 + i, 18 + i, 18 + j), (12 + i, 12 + j, 18 + j), (12 + i, 18 + j, 18 + i)]
+    ring = pieces.split(_scene(pts, tris), 5.0, set())[0]
+    assert ring["polar"]["sides"] == 6 and ring["polar"]["hole"] == pytest.approx(8.0, rel=0.02)
+    assert pieces.guess(ring, 20)[0] == "lathe" and pieces.guess(ring, 20)[1]["sides"] == 6
+
+    # a beam that climbs along a curve
+    pts, tris = [], []
+    for k, (x, z) in enumerate(((0, 0), (10, 1), (20, 4), (30, 9))):
+        pts += [(x, -1, z), (x, 1, z), (x, 1, z + 1.5), (x, -1, z + 1.5)]
+        if k:
+            a, b = 4 * (k - 1), 4 * k
+            for i in range(4):
+                j = (i + 1) % 4
+                tris += [(a + i, a + j, b + j), (a + i, b + j, b + i)]
+    beam = pieces.split(_scene(pts, tris), 1.0, set())[0]
+    assert beam["fits"]["sweep"] and not beam["fits"]["rect"] and pieces.guess(beam, 40)[0] == "sweep"
+    assert len(beam["sections"]["stations"]) == 4
+
+    # ground with relief inside a square outline is not a block
+    side = np.linspace(-10, 10, 5)
+    pts = [(x, y, 0.0 if abs(x) == 10 or abs(y) == 10 else 3.0 * ((i + j) % 2) + 1) for i, x in enumerate(side) for j, y in enumerate(side)]
+    tris = []
+    for i in range(4):
+        for j in range(4):
+            a = i * 5 + j
+            tris += [(a, a + 5, a + 6), (a, a + 6, a + 1)]
+    ground = pieces.split(_scene(pts, tris), 1.0, set())[0]
+    assert not ground["fits"]["rect"] and pieces.guess(ground, 40)[0] == "keep"
+
+
+def test_texture_becomes_height_steps():
+    from phidias_hoard.engine import heights
+
+    tex = np.full((8, 8, 4), 200, np.uint8)
+    tex[2:6, 2:6, :3] = 60                                  # a dark panel in a light frame
+    lv = heights.texel_levels(tex)
+    assert lv[0, 0] == 0 and lv[3, 3] < 0 and set(np.unique(lv)) == {int(lv[3, 3]), 0}
+    assert heights.texel_levels(np.full((8, 8, 4), 128, np.uint8)) is None

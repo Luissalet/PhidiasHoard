@@ -10,7 +10,16 @@ milímetros.
   posiciones. Los tejados a cuatro aguas llevan tejas de medio punto de verdad, limatesas, faldón cóncavo y aleros
   levantados; los cuerpos llevan pilares, vigas y un panel rehundido, celosía o puerta en cada vano; las piezas
   torneadas (agujas, columnas) se tornean con el perfil de la propia pieza; losas y peanas siguen su perfil con
-  biseles; las escaleras llevan peldaños; lo demás se conserva como la pieza original limpiada a quads. Las piezas
+  biseles; las vigas y limatesas siguen su propia línea, recta o curva; las escaleras llevan peldaños; lo demás se
+  conserva como la pieza original limpiada a quads. Las piezas torneadas salen redondas, como prisma con los lados
+  que tiene la pieza (un anillo hexagonal sigue siendo hexagonal) o como anillo con su hueco. Un tejado con los aleros
+  curvos en el modelo del juego se reconstruye con esa curva, medida, y entero aunque el juego no traiga los lados
+  que no se ven; un tejado con algo más que cuatro faldones (una plataforma, una trampilla) conserva su forma y recibe
+  las tejas a lo largo de sus faldones. Lo que dibujan las texturas (paneles, marcos, bandas, juntas) se modela en
+  las caras: cada quad pasa a ser una retícula que sigue los téxeles donde cambia la altura, con escalones hacia
+  fuera y hacia dentro. A cada pieza solo se le ofrecen los constructores en los que su forma encaja de verdad, así
+  que un terreno en pendiente nunca acaba convertido en bloque ni en tejado. El modelo de visión de la familia puede
+  elegir qué es cada tipo y sus parámetros, mirar el resultado junto al original y corregirlo («Remodelar con IA»). Las piezas
   con la misma forma son un tipo: eliges qué es cada tipo y sus parámetros (tejas por lado, vanos, barrotes,
   segmentos). El resultado es un `.blend` con un objeto por pieza y los biseles como modificadores vivos, y un OBJ
   en quads. La vista 3D y las imágenes dibujan las aristas de la malla.

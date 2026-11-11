@@ -11,9 +11,26 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   module) as quads: `roof` (fascia, concave slope, corner lift, half-round tiles shortened at the hips, hip ridges,
   quad soffit; params tiles, rows, concave, corner_lift, tile_radius, bevel), `body` (posts, beams at every level,
   one recessed panel per bay and band; zones panel/lattice/plain, bars, door_bay, post_section, post, beam,
-  panel_depth, bays_x, bays_y), `block` (loft of the profile, bevel), `lathe` (profile revolved; segments), `stairs`
-  (steps, axis, flip), `keep` (original welded, triangles joined to quads, bevel), `drop`. A piece whose builder
-  fails falls back to `keep`. Output in `data/projects/<id>/remodel/`: `remodel.blend` (object per piece in
+  panel_depth, bays_x, bays_y), `block` (loft of the profile, bevel), `lathe` (profile revolved; segments, flutes,
+  sides = prism with the piece's own corners and phase, a ring keeps its hole), `sweep` (box sections along the
+  piece's long side, smooth = sections added on a curve), `tiled` (the piece kept, half-round tiles laid down the
+  sloped faces of its tile material, cut where those faces end), `stairs` (steps, axis, flip), `keep` (original
+  welded, triangles joined to quads, bevel), `drop`. A piece whose builder fails falls back to `keep`.
+- Fit before build (`remodel/pieces.py`): each piece is measured in its own frame (tightest yaw) and gets `fits`
+  {rect, round, shell, sweep, tiled}; `allowed` only lists builders whose shape it has. `rect` also needs every face
+  on the loft of its outlines (ground with relief is not a block). A square piece missing the sides the game culled
+  is completed by symmetry (`completed`). `polar` = sides, phase, radii, hole; `sections` = sweep stations; `roof` =
+  measured eaves (lift, level stretch, fascia, slope line) used by the roof builder unless concave or corner_lift
+  are given. `tiled` is only guessed for a piece that sheds outward, stands above the ground and has a tiling
+  texture.
+- Texture into topology: `heights.texel_levels` turns each texture into a few height steps per texel; `keep`,
+  `tiled`, `sweep` and two-level `block` pieces replace every quad whose UVs lie square on the texture with a quad
+  grid cut where the height changes (cuts doubled for a sloped wall, texels merged below 0.22 mm, face borders stay
+  at zero, bevel limited by weight to the piece's own corners). `emboss: 0` turns it off per type; materials with
+  recipe flat or drop and baked atlases are left out; depth is the material's depth_mm.
+- Remodel direction (`remodel_start` with `direct`, `rounds`, `wish`): the vision model sees contact sheets of the
+  piece types and their textures, chooses kind and params per type (only allowed kinds, params clamped), the remodel
+  is built, it looks at it next to the original and may redo; its log is `project.remodel_director`. Output in `data/projects/<id>/remodel/`: `remodel.blend` (object per piece in
   collections by kind, bevel modifiers live), `remodel.obj` (modifiers applied, quads), `remodel.json` (verts,
   quads, tris, n-gons per object). `model_look` with `result: remodel` draws the edges (`wire`); `result_export`
   copies the .blend and .obj.
@@ -58,9 +75,12 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 
 ## Cannot
 
-- Remodel pieces it has no builder for: irregular rock, terrain, organic shapes and anything not built on rectangular
-  or round outlines stay as the cleaned original (`keep`). The model does not choose the pieces' kinds yet.
-- Read a piece's ornament from its texture into the remodel (panel layouts, tile counts and bays are parameters).
+- Remodel pieces it has no builder for: irregular rock, terrain and organic shapes (statues) stay as the cleaned
+  original (`keep`), faceted as the game has them.
+- Model a texture into faces that are triangles or whose UVs are not square on the texture (statues, fans of
+  triangles), or into pieces rebuilt by `roof`, `body`, `lathe` and `stairs`. The steps come from how light each
+  texel is, so painted shading reads as relief. Tile counts, bays and bars are still parameters, not read.
+- Complete what the game culled other than by the symmetry of a square piece.
 
 - Read FBX, `.blend`, `.smd` or engine-native formats (they have to be converted to one of the four formats).
 - Invent relief a texture does not hold: plain colours stay flat; a baked atlas without normal maps gives coarser

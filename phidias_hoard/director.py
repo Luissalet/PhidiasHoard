@@ -199,3 +199,95 @@ def _apply(svc, pid: str, changes: dict[str, dict[str, Any]]) -> None:
         if "recipe" in change:
             cur["why"] = "decidido por el modelo"
     svc.store.save(project)
+
+
+# ------------------------------------------------------------------------------------------------------------ remodel
+REMODEL_SYSTEM = """You direct the remodelling of low-poly video-game scenery. The game model has been taken apart into pieces; pieces of the same shape are one type. Each type is rebuilt in Blender in clean quads by one builder, using the original only for sizes and positions. You decide which builder and its parameters, from the picture of the original piece and of the textures the game puts on it (the textures tell you what the piece really is: a tiled roof, a wall with panels or lattice windows, a door, a fluted column).
+Builders (a type can only use the ones listed as allowed for it):
+- roof: hipped roof with real half-round tiles running down each side, hip ridges, concave slope, upturned corners. params: tiles (ribs per side: count them in the texture times how often it repeats; 8-30), rows (segments down the slope, 4-8), concave (1 straight, 1.45 oriental curve, up to 2), corner_lift (0 flat eaves, 0.35 gentle, 0.7 strong pagoda upturn).
+- body: one storey of a building: posts at the corners and between bays, beams, and in every bay a recessed panel. params: bays_x (bays across the front), bays_y (across the side), zones (list, one per horizontal band from bottom to top: "panel" recessed panel, "lattice" window with vertical bars, "plain" bare wall), bars (bars per lattice), door_bay (index from 0 of the front bay that is a door, or null), post_section ("square" or "round").
+- tiled: a roof that is more than four slopes (it has a platform, a hatch, a dormer): the piece itself, with the same half-round tiles laid down its slopes. params: tiles (ribs across its widest side).
+- block: a slab, plinth, step or plain box that follows the piece's own outline, with bevelled edges. params: bevel (mm).
+- sweep: a beam along its own line, straight or curved (a hip ridge, a rail, a curved eave beam). params: smooth (sections added between its own, 0-8; giving it rebuilds the beam plain, without what its texture draws).
+- lathe: a turned piece (spire, finial, round column, urn) revolved from the piece's own profile. params: segments (16-48), flutes (0, or the number of vertical channels of a fluted column shaft: 8-24), sides (0 round; 3-12 a prism with that many flat sides, like a hexagonal ring or an octagonal post). A ring keeps its hole.
+- stairs: real steps inside the piece's box. params: steps, axis ("x" or "y": the direction they climb along), flip (true if they climb the other way).
+- keep: the original piece as it is, cleaned into quads (rock, terrain, statues, anything irregular).
+What the textures draw (panels, frames, bands, joints) is modelled into the faces of keep, tiled, sweep and plain block pieces in steps; "emboss": 0 in params turns that off for a type whose texture is only shading or noise.
+- drop: remove (shadow planes, light effects, sky).
+When the original roof has its own curved eaves they are measured and used: give concave or corner_lift only to override them.
+Write "what" and "notes" in Spanish (Spain). Answer with one JSON object and nothing else."""
+
+
+def _types_table(types: list[dict[str, Any]]) -> str:
+    lines = []
+    for t in types:
+        mats = ", ".join(f'{n} (repeats {m["repeat_u"]} x {m["repeat_v"]})' for n, m in list(t["materials"].items())[:3])
+        lines.append(f'- type {t["type"]}: {t["count"]} piece(s), {" x ".join(f"{v:.1f}" for v in t["size_mm"])} mm, {t["triangles"]} triangles, '
+                     f'{t["levels"]} levels; textures: {mats}; allowed: {", ".join(t["allowed"])}; now: {t["kind"]} {t["params"]}')
+    return "\n".join(lines)
+
+
+def _apply_types(svc, pid: str, raw: Any) -> dict[str, dict[str, Any]]:
+    applied: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return applied
+    for key, change in raw.items():
+        key = str(key).replace("type", "").strip()
+        if not isinstance(change, dict):
+            continue
+        clean = {k: change[k] for k in ("kind", "params", "what") if k in change}
+        try:
+            svc.remodel_set(pid, {key: clean})
+            applied[key] = clean
+        except Exception:                                  # a builder the piece cannot take, or an unknown type: skipped
+            continue
+    return applied
+
+
+def run_remodel(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]) -> dict[str, Any]:
+    project = svc.store.get(pid)
+    llm = svc.llm
+    plan = svc.remodel_plan(pid)
+    choosable = [t for t in plan["types"] if len(t["allowed"]) > 3 or t["kind"] not in ("keep",)]
+    choosable = sorted(choosable, key=lambda t: -t["triangles"] * t["count"])[:30]
+    wish_text = f"\nThe owner asks: {wish.strip()}" if wish.strip() else ""
+    log: list[dict[str, Any]] = []
+    if choosable:
+        say("el modelo mira las piezas", 0.05)
+        answer = llm.ask(REMODEL_SYSTEM, f'Scene: "{project["name"]}", {project["settings"]["size_mm"]:.0f} mm on its longest side.{wish_text}\n'
+                         f'Piece types:\n{_types_table(choosable)}\n\nDecide every type. Answer: {{"scene": "what this place is, one line", '
+                         '"types": {"<type number>": {"what": "what the piece is", "kind": ..., "params": {...}}}}', svc.piece_sheets(pid, choosable))
+        applied = _apply_types(svc, pid, answer.get("types"))
+        log.append({"step": "piezas", "at": time.time(), "scene": str(answer.get("scene", ""))[:300], "types": applied})
+    verdict, notes, result = "ok", "", None
+    for attempt in range(max(1, rounds)):
+        result = svc._do_remodel(pid, lambda stage, frac: say(f"construcción {attempt + 1}: {stage}", 0.15 + 0.8 * (attempt + frac * 0.6) / max(1, rounds)))
+        if attempt == rounds - 1 or not choosable:
+            break
+        say(f"el modelo mira la construcción {attempt + 1}", 0.15 + 0.8 * (attempt + 0.8) / max(1, rounds))
+        BP, BF = svc.mesh(pid, "before")
+        P, F = svc.mesh(pid, "remodel")
+        E = np.load(svc.store.dir(pid) / "remodel_E.npy")
+        views = []
+        for yaw, pitch in ((35, 25), (215, 15)):
+            pair = preview.side_by_side([preview.render(BP, BF, yaw=yaw, pitch=pitch, size=560), preview.render(P, F, yaw=yaw, pitch=pitch, size=560, edges=E)],
+                                        ["game model", "remodel (with its edges)"])
+            views.append(_png(pair))
+        centre, radius = P.mean(0), float(np.linalg.norm(P.max(0) - P.min(0))) / 7
+        views.append(_png(_label(preview.render(P, F, yaw=30, pitch=20, size=640, region=[*centre, radius], edges=E), "close-up of the remodel")))
+        plan = svc.remodel_plan(pid)
+        current = [t for t in plan["types"] if any(t["type"] == c["type"] for c in choosable)]
+        answer = llm.ask(REMODEL_SYSTEM, f'Scene: "{project["name"]}".{wish_text}\nThis is build {attempt + 1}. Piece types now:\n{_types_table(current)}\n\n'
+                         'Compare the remodel with the game model. Is every piece the right thing, with believable proportions and enough but not too much '
+                         'detail for its size (tiles, bays, bars, flutes)? Is something missing that the game model shows? Change only what needs changing. '
+                         'Answer: {"verdict": "ok" | "redo", "notes": "two or three sentences", "types": {"<type number>": {fields to change}}}', views)
+        verdict = "redo" if str(answer.get("verdict", "")).lower() == "redo" else "ok"
+        notes = str(answer.get("notes", ""))[:800]
+        applied = _apply_types(svc, pid, answer.get("types")) if verdict == "redo" else {}
+        log.append({"step": f"construcción {attempt + 1}", "at": time.time(), "verdict": verdict, "notes": notes, "types": applied})
+        if verdict == "ok" or not applied:
+            break
+    project = svc.store.get(pid)
+    project["remodel_director"] = {"at": time.time(), "wish": wish.strip()[:500], "model": llm.status().get("model", ""), "log": log}
+    svc.store.save(project)
+    return {**(result or {}), "director": {"rounds": len(log), "verdict": verdict, "notes": notes}}

@@ -198,5 +198,33 @@ def test_remodel_rebuilds_the_pieces_in_quads(client, tmp_path):
     assert len(client.get(f"/api/projects/{pid}/download/remodel.blend").content) > 2000
     look = client.get(f"/api/projects/{pid}/look.png", params={"result": "remodel", "size": 300})
     assert look.status_code == 200
+    # the model decides the pieces, looks at the build and corrects it; what a piece cannot be is refused
+    class PieceModel:
+        calls = 0
+
+        def status(self):
+            return {"available": True, "model": "fake"}
+
+        def ask(self, system, user, images, max_tokens=6000, timeout=None):
+            PieceModel.calls += 1
+            assert images and "allowed:" in user
+            if PieceModel.calls == 1:
+                return {"scene": "una pagoda", "types": {str(roof): {"what": "tejado", "kind": "roof", "params": {"tiles": 500, "corner_lift": 0.6}},
+                                                           "type 1": {"kind": "spaceship"}, "99": {"kind": "block"}}}
+            if PieceModel.calls == 2:
+                return {"verdict": "redo", "notes": "Faltan celosías.", "types": {str(plan["types"][1]["type"]): {"params": {"zones": ["lattice"], "bars": 4}}}}
+            return {"verdict": "ok", "notes": "Bien.", "types": {}}
+
+    client.svc.llm = PieceModel()
+    job = call(client, "remodel_start", project_id=pid, direct=True, rounds=3)
+    done = call(client, "job_status", job_id=job["id"])
+    assert done["state"] == "done", done
+    assert done["result"]["director"] == {"rounds": 3, "verdict": "ok", "notes": "Bien."}
+    plan2 = call(client, "remodel_plan", project_id=pid)
+    assert plan2["types"][2]["params"]["tiles"] == 60 and plan2["types"][2]["params"]["corner_lift"] == 0.6   # clamped
+    assert plan2["types"][0]["kind"] == "block"               # a builder that does not exist is refused: it stayed what it was
+    assert plan2["types"][1]["params"]["bars"] == 4
+    assert [s["step"] for s in call(client, "project_get", project_id=pid)["remodel_director"]["log"]] == ["piezas", "construcción 1", "construcción 2"]
+    r = call(client, "remodel_set", project_id=pid, types={str(roof): {"params": {"tiles": 8}}})
     out = call(client, "result_export", project_id=pid, folder=str(tmp_path / "out"))
     assert out["result"] == "remodel" and out["paths"][0].endswith("remodelado.blend") and (tmp_path / "out").is_dir()

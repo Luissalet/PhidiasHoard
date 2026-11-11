@@ -15,3 +15,8 @@
 - Exportar 3MF con las piezas y el color de cada material para impresión multicolor.
 - Texturas originales de los juegos de Switch cuando existan junto al atlas horneado (más resolución que el horneado).
 - Peana con nombre grabado y hueco para la figura del legendario a escala.
+- Remodelado de piezas orgánicas (estatuas, roca): retopología en quads a partir de la pieza facetada del juego.
+- Dibujo de la textura en caras triangulares o con el mapeado girado, y en las piezas que construyen tejado, cuerpo
+  y torneado (hoy solo en las que se conservan).
+- Contar tejas, vanos y barrotes en la textura en vez de pedirlos como parámetro.
+- Completar lo que el juego no trae (caras traseras) más allá de la simetría de una pieza cuadrada.
