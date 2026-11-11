@@ -228,3 +228,56 @@ def test_remodel_rebuilds_the_pieces_in_quads(client, tmp_path):
     r = call(client, "remodel_set", project_id=pid, types={str(roof): {"params": {"tiles": 8}}})
     out = call(client, "result_export", project_id=pid, folder=str(tmp_path / "out"))
     assert out["result"] == "remodel" and out["paths"][0].endswith("remodelado.blend") and (tmp_path / "out").is_dir()
+
+
+def _library(tmp_path):
+    lib = tmp_path / "faustus" / "skills" / "library"
+    for slug, tags, body in (("game-scenery-remodel", "[3d, blender]", "Step one."), ("blender-asset-production", "[blender]", "Model it."),
+                             ("fastapi-patterns", "[python, api]", "Routers."), ("mesh-lods", "[3d, mesh]", "Levels of detail.")):
+        (lib / slug / "references").mkdir(parents=True)
+        (lib / slug / "SKILL.md").write_text(f"---\nname: {slug}\ndescription: About {slug}. Use when needed.\nversion: 1.0.0\n"
+                                             f"category: engineering\ntags: {tags}\nstatus: published\n---\n\n## Procedure\n\n{body}\n", encoding="utf-8")
+        (lib / slug / "references" / "example.md").write_text("An example.", encoding="utf-8")
+    return lib
+
+
+def test_agents_get_the_skills_the_app_asks_the_library_for(client, tmp_path):
+    from phidias_hoard.api import agent as agent_api
+    from phidias_hoard.hoard_link import skills as family_skills
+
+    lib = _library(tmp_path)
+    shelf = agent_api.SHELF
+    old = (shelf.library, shelf.wants, shelf._checked)
+    shelf.library, shelf._checked = str(lib), 0.0
+    shelf.wants = {"slugs": ["game-scenery-remodel", "blender-asset-production", "not-there"], "tags": ["3d", "mesh"], "limit": 8}
+    try:
+        c, svc = client, client.svc
+        listing = c.get("/api/agent/tools").json()
+        names = [t["name"] for t in listing["tools"]]
+        assert {"skills_list", "skill_read", "skills_refresh"} <= set(names) and "remodel_start" in names
+        slugs = [s["slug"] for s in listing["skills"]]
+        assert slugs == ["game-scenery-remodel", "blender-asset-production", "mesh-lods"]      # named first, then by shared tags
+        assert "game-scenery-remodel: About game-scenery-remodel" in listing["instructions"]
+        auth = {"Authorization": "Bearer " + svc.token}
+        read = c.post("/api/agent/call", json={"name": "skill_read", "arguments": {"slug": "game-scenery-remodel"}}, headers=auth).json()
+        assert "Step one." in read["text"] and read["files"] == ["references/example.md"]
+        ref = c.post("/api/agent/call", json={"name": "skill_read", "arguments": {"slug": "mesh-lods", "file": "references/example.md"}}, headers=auth).json()
+        assert ref["text"] == "An example."
+        assert c.post("/api/agent/call", json={"name": "skill_read", "arguments": {"slug": "fastapi-patterns"}}, headers=auth).status_code == 404
+        # the library improves a skill and drops another: the copy follows
+        (lib / "mesh-lods" / "SKILL.md").write_text((lib / "mesh-lods" / "SKILL.md").read_text(encoding="utf-8").replace("Levels of detail.", "Better."), encoding="utf-8")
+        (lib / "blender-asset-production" / "SKILL.md").unlink()
+        again = c.post("/api/agent/call", json={"name": "skills_refresh", "arguments": {}}, headers=auth).json()
+        assert again["updated"] == ["mesh-lods"] and again["removed"] == ["blender-asset-production"]
+        assert "Better." in c.get("/api/skills/mesh-lods").json()["text"]
+        # with the library gone the agents still have the copy
+        shelf.library, shelf._checked = str(tmp_path / "nowhere"), 0.0
+        import phidias_hoard.hoard_link.fam_mail as fam_mail
+        real, fam_mail.faustus_dir = fam_mail.faustus_dir, lambda *a, **k: None
+        try:
+            assert [s["slug"] for s in c.get("/api/skills").json()["skills"]] == ["game-scenery-remodel", "mesh-lods"]
+        finally:
+            fam_mail.faustus_dir = real
+    finally:
+        shelf.library, shelf.wants, shelf._checked = old
+    assert family_skills.parse("no front matter")[0] == {}

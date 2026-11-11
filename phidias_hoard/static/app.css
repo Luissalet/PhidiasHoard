@@ -117,3 +117,7 @@ img.sheet { width: 100%; border-radius: 8px; border: 1px solid var(--hoard-borde
 .piece .pparams label { display: flex; flex-direction: column; font-size: 11px; color: var(--hoard-text-dim); gap: 2px; }
 .piece .pparams .input { height: 26px; font-size: 12px; }
 .viewbar .check { margin: 0 4px; }
+
+.skill-row { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--line, rgba(255,255,255,.08)); }
+.skill-row .hint { margin-top: 2px; }
+.skill-text { white-space: pre-wrap; max-height: 60vh; overflow: auto; font-size: 12.5px; line-height: 1.5; margin: 0; }

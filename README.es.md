@@ -5,6 +5,12 @@ alta resolución para imprimir en 3D: el relieve que el juego solo dibuja en sus
 bloques, escalones, las líneas de una columna, tejas) se talla en la malla, al tamaño al que vas a imprimir y en
 milímetros.
 
+- **Skills para los agentes que se conectan**: Phidias coge de la biblioteca de skills del espacio de trabajo de la
+  familia los procedimientos que necesita su trabajo (cómo remodelar escenarios de juegos con estas herramientas, cómo
+  producir assets en Blender, cómo preparar 3D para la web, cómo verificar un resultado) y se los da a cada agente que
+  se conecta: aparecen en lo que el agente lee al conectarse, se leen con `skills_list` y `skill_read`, y se ofrecen
+  como prompts. Son copias guardadas con la app, que se renuevan cuando la biblioteca mejora una; el botón «Skills»
+  las enseña.
 - **Remodelado** (la forma principal de trabajar): el modelo del juego se despieza y cada pieza se construye de nuevo
   en Blender con operaciones de modelado, en quads limpios, usando el original solo como referencia de medidas y
   posiciones. Los tejados a cuatro aguas llevan tejas de medio punto de verdad, limatesas, faldón cóncavo y aleros

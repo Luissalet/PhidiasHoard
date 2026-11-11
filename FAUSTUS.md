@@ -1,10 +1,17 @@
 # Phidias's Hoard — what it can and cannot do
 
-App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (20 tools; `material_look` and
+App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_server.py` (23 tools; `material_look` and
 `model_look` return MCP images). Connector preset: its own `faustus-plugin.json`.
 
 ## Can
 
+- Skills shelf (`hoard_link/skills.py`, wired in `api/agent.py`): the `skills` block of `faustus-plugin.json` names the
+  library skills this app wants (slugs `game-scenery-remodel`, `blender-asset-production`, `web-3d-asset-pipeline`,
+  `verification-loop`, plus the closest by tags, 8 at most). They are copied to `data/skills/`, appended to the agent
+  instructions, served by `skills_list`, `skill_read` (slug, optional reference file), `skills_refresh`, returned as
+  `skills` by `GET /api/agent/tools`, and offered as MCP prompts `skill-<slug>`. Page: `GET /api/skills`,
+  `GET /api/skills/{slug}`, `POST /api/skills/refresh`, button "Skills". Works from the copy with Faustus closed.
+  `game-scenery-remodel` (in the library) is the procedure for driving this app.
 - Remodel (`remodel_plan`, `remodel_set`, `remodel_start`): split the model into connected pieces (position, size,
   profile = outline size at every height with corners, materials and texture repeats; equal shapes are one type),
   guess what each is, and build each in Blender (`remodel/blender_build.py`, with the Blender found or the `bpy`

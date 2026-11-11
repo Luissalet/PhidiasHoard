@@ -4,6 +4,7 @@ Hoard Link)."""
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from pydantic import ValidationError
 
 from . import APP_ID, SERVICE, __version__
 from .api import ROUTERS
+from .api.agent import SHELF
 from .config import Config
 from .errors import PhidiasError
 from .hoard_link import family
@@ -32,6 +34,7 @@ def create_app(config: Config | None = None, services: Services | None = None) -
         svc = services or Services(config)
         app.state.services = svc
         svc.start()
+        threading.Thread(target=SHELF.refresh, kwargs={"force": True}, daemon=True, name="phidias-skills").start()
         logging.getLogger("phidias").info("Phidias's Hoard %s - data in %s", __version__, config.data_dir)
         try:
             yield
@@ -40,6 +43,7 @@ def create_app(config: Config | None = None, services: Services | None = None) -
 
     app = FastAPI(title="Phidias's Hoard", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.config = config
+    SHELF._data_dir = config.data_dir
     family.configure(APP_ID, str(config.data_dir), token_file=str(config.token_path))
     install_guard(app, port_getter=lambda: config.port, allowed_env="PHIDIAS_ALLOWED_HOSTS", allowed_hosts=config.allowed_hosts)
     install_error_handlers(app)
