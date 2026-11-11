@@ -553,11 +553,62 @@ def _source(piece):
     return bm, uv_layer, names
 
 
-def build_subdivided(piece, name, kind, rounded):
+def _complete_exterior(bm, blank_material):
+    """Cap broad planar borders at the outside of a piece, leaving smaller holes and ambiguous borders alone."""
+    if not bm.verts:
+        return 0
+    lo = [min(v.co[a] for v in bm.verts) for a in range(3)]
+    hi = [max(v.co[a] for v in bm.verts) for a in range(3)]
+    span = [hi[a] - lo[a] for a in range(3)]
+    tol = max(1e-5, 0.001 * max(span))
+    adjacent = {}
+    for e in bm.edges:
+        if e.is_boundary:
+            for v in e.verts:
+                adjacent.setdefault(v, []).append(e)
+    remaining = set(adjacent)
+    completed = 0
+    while remaining:
+        pending = [remaining.pop()]
+        loop = set(pending)
+        for v in pending:
+            for e in adjacent[v]:
+                other = e.other_vert(v)
+                if other in remaining:
+                    remaining.remove(other)
+                    pending.append(other)
+                    loop.add(other)
+        if len(loop) < 3 or any(len(adjacent[v]) != 2 for v in loop):
+            continue
+        for axis in range(3):
+            coords = [v.co[axis] for v in loop]
+            flat = max(coords) - min(coords) <= tol
+            outer = max(coords) - lo[axis] <= tol or hi[axis] - min(coords) <= tol
+            if span[axis] <= 5 * tol or not (flat and outer):
+                continue
+            in_plane = [a for a in range(3) if a != axis]
+            if any(max(v.co[a] for v in loop) - min(v.co[a] for v in loop) < 0.8 * span[a] for a in in_plane):
+                continue
+            edges = list({e for v in loop for e in adjacent[v]})
+            faces = bmesh.ops.holes_fill(bm, edges=edges)["faces"]
+            for face in faces:
+                face.material_index = blank_material
+            large = [face for face in faces if len(face.verts) > 4]
+            if large:
+                new_tris = bmesh.ops.triangulate(bm, faces=large)["faces"]
+                bmesh.ops.join_triangles(bm, faces=new_tris, angle_face_threshold=math.radians(2),
+                                         angle_shape_threshold=math.radians(60))
+            completed += int(bool(faces))
+            break
+    return completed
+
+
+def build_subdivided(piece, name, kind, rounded, cap=False):
     """A piece whose faces are divided into small quads (every triangle into quads too) and then carry what the
     texture draws, blended between texels. ``rounded`` also smooths the shape: a figure the game made of flat facets
     comes out as a soft surface."""
     bm, _, names = _source(piece)
+    completed = _complete_exterior(bm, len(names)) if cap else 0
     edges = [e.calc_length() for e in bm.edges]
     faces = len(bm.faces)
     if not edges or not faces:
@@ -598,6 +649,7 @@ def build_subdivided(piece, name, kind, rounded):
         for v, d in moves:
             v.co += d
     finish(bm, name, kind, smooth=rounded)
+    STATS[-1]["completed_sides"] = completed
 
 
 def build_organic(piece, name):
@@ -701,9 +753,11 @@ def build_keep(piece, name, kind="originales", skip=()):
     bm, uv_layer, names = _source(piece)
     uvs = piece.get("uvs") or []
     weighted = False
+    cap = bool(piece["params"].get("cap", 1))
     if uvs and piece["params"].get("emboss", 1) and _drawn(piece) and not skip and len(bm.faces) <= 600 and _square_share(bm, uv_layer, piece) < 0.5:
         bm.free()                                          # triangles and turned mappings: the drawing goes in on a fine grid instead
-        return build_subdivided(piece, name, kind, False)
+        return build_subdivided(piece, name, kind, False, cap=cap)
+    completed = _complete_exterior(bm, len(names)) if cap else 0
     if uvs and piece["params"].get("emboss", 1) and _drawn(piece):
         bm.normal_update()
         weight = bm.edges.layers.float.new("bevel_weight_edge")
@@ -712,6 +766,7 @@ def build_keep(piece, name, kind="originales", skip=()):
                 e[weight] = 1.0
         weighted = emboss(bm, uv_layer, piece, skip) > 0
     finish(bm, name, kind, bevel=float(piece["params"].get("bevel", 0.15)), weighted=weighted)
+    STATS[-1]["completed_sides"] = completed
 
 
 # ------------------------------------------------------------------------------------------------------------ tiled

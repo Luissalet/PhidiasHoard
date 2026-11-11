@@ -15,7 +15,8 @@ milímetros.
   que tiene la pieza (un anillo hexagonal sigue siendo hexagonal) o como anillo con su hueco. Un tejado con los aleros
   curvos en el modelo del juego se reconstruye con esa curva, medida, y entero aunque el juego no traiga los lados
   que no se ven; un tejado con algo más que cuatro faldones (una plataforma, una trampilla) conserva su forma y recibe
-  las tejas a lo largo de sus faldones. Lo que dibujan las texturas (paneles, marcos, bandas, juntas) se modela en
+  las tejas a lo largo de sus faldones. Las piezas conservadas y esos tejados completan los lados exteriores planos
+  cuyo borde abarca toda la pieza. Lo que dibujan las texturas (paneles, marcos, bandas, juntas) se modela en
   las caras: cada quad pasa a ser una retícula que sigue los téxeles donde cambia la altura, con escalones hacia
   fuera y hacia dentro; en triángulos y en texturas giradas sobre la cara entra con una retícula fina de quads
   (coronas, ménsulas, ornamentos). Las figuras que el juego hizo con facetas planas (estatuas, animales) se

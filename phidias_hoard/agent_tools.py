@@ -102,7 +102,8 @@ class PieceChange(BaseModel):
     params: Optional[dict[str, Any]] = Field(None, description="roof: tiles (ribs per side), rows, concave (1-2), corner_lift (0-0.8), tile_radius, bevel. "
                                              "lathe also flutes (channels of a fluted shaft). body: bays_x, bays_y, zones (per band bottom to top: panel, lattice or plain), bars, door_bay (bay of the front, or null), "
                                              "post_section (square, round), post, beam, panel_depth. block: bevel. lathe: segments, sides (flat sides of a prism, 0 round), bevel. tiled: tiles. sweep: smooth. stairs: steps, axis (x, y), flip. "
-                                             "keep, tiled, sweep, block: emboss (0 leaves out what the textures draw). Sizes in mm.")
+                                             "keep, tiled, sweep, block: emboss (0 leaves out what the textures draw). "
+                                             "keep and tiled: cap (0 keeps the original borders). Sizes in mm.")
     what: Optional[str] = Field(None, max_length=160)
 
 

@@ -378,10 +378,10 @@ _NUM = {"roof": {"tiles": (4, 60, int), "rows": (3, 12, int), "concave": (1.0, 2
         "body": {"bays_x": (1, 12, int), "bays_y": (1, 12, int), "bars": (2, 12, int), "post": (0.0, 10.0, float), "beam": (0.0, 10.0, float),
                  "panel_depth": (0.0, 5.0, float)},
         "block": {"bevel": (0.0, 2.0, float), "emboss": (0, 1, int)}, "lathe": {"segments": (8, 64, int), "flutes": (0, 32, int), "sides": (0, 12, int), "bevel": (0.0, 1.0, float)},
-        "tiled": {"tiles": (4, 60, int), "tile_radius": (0.0, 5.0, float), "bevel": (0.0, 1.0, float), "emboss": (0, 1, int)},
+        "tiled": {"tiles": (4, 60, int), "tile_radius": (0.0, 5.0, float), "bevel": (0.0, 1.0, float), "emboss": (0, 1, int), "cap": (0, 1, int)},
         "organic": {"level": (1, 4, int), "emboss": (0, 1, int)},
         "sweep": {"smooth": (0, 8, int), "bevel": (0.0, 1.0, float), "emboss": (0, 1, int)},
-        "stairs": {"steps": (2, 40, int), "bevel": (0.0, 1.0, float)}, "keep": {"bevel": (0.0, 1.0, float), "emboss": (0, 1, int)}, "drop": {}}
+        "stairs": {"steps": (2, 40, int), "bevel": (0.0, 1.0, float)}, "keep": {"bevel": (0.0, 1.0, float), "emboss": (0, 1, int), "cap": (0, 1, int)}, "drop": {}}
 
 
 def clean_params(kind: str, params: Any) -> dict[str, Any]:
