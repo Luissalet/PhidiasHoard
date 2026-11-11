@@ -254,7 +254,7 @@ def test_agents_get_the_skills_the_app_asks_the_library_for(client, tmp_path):
         c, svc = client, client.svc
         listing = c.get("/api/agent/tools").json()
         names = [t["name"] for t in listing["tools"]]
-        assert {"skills_list", "skill_read", "skills_refresh"} <= set(names) and "remodel_start" in names
+        assert {"skills_list", "skill_read", "skills_refresh", "skills_library", "skills_assign"} <= set(names) and "remodel_start" in names
         slugs = [s["slug"] for s in listing["skills"]]
         assert slugs == ["game-scenery-remodel", "blender-asset-production", "mesh-lods"]      # named first, then by shared tags
         assert "game-scenery-remodel: About game-scenery-remodel" in listing["instructions"]
@@ -269,13 +269,31 @@ def test_agents_get_the_skills_the_app_asks_the_library_for(client, tmp_path):
         (lib / "blender-asset-production" / "SKILL.md").unlink()
         again = c.post("/api/agent/call", json={"name": "skills_refresh", "arguments": {}}, headers=auth).json()
         assert again["updated"] == ["mesh-lods"] and again["removed"] == ["blender-asset-production"]
-        assert "Better." in c.get("/api/skills/mesh-lods").json()["text"]
+        assert "Better." in c.get("/api/agent/skills/read/mesh-lods").json()["text"]
+        # the person (or an agent) adds one the manifest does not ask for and takes one away
+        found = c.post("/api/agent/call", json={"name": "skills_library", "arguments": {"query": "python api"}}, headers=auth).json()
+        assert [s["slug"] for s in found["skills"]] == ["fastapi-patterns"] and found["skills"][0]["on"] is False
+        added = c.post("/api/agent/call", json={"name": "skills_assign", "arguments": {"slug": "fastapi-patterns"}}, headers=auth).json()
+        assert "fastapi-patterns" in [s["slug"] for s in added["shelf"]]
+        off = c.post("/api/agent/skills/assign", json={"slug": "mesh-lods", "on": False}).json()
+        assert [s["slug"] for s in off["shelf"]] == ["game-scenery-remodel", "fastapi-patterns"]
+        assert c.post("/api/agent/skills/assign", json={"slug": "nope"}).status_code == 404
+        page = c.get("/api/agent/skills/page")
+        assert page.status_code == 200 and "Biblioteca" in page.text and '"/api/agent/skills"' in page.text
+        made = c.post("/api/agent/skills/create", json={"slug": "Check Mesh", "description": "Checks a mesh before printing it. Use when a model is about to be sliced.",
+                                                         "tags": "3d, mesh", "when": "Before printing.", "procedure": "1. Look.", "pitfalls": "- None.", "verification": "- Seen.",
+                                                         "only_this_app": True})
+        assert made.status_code == 200 and made.json()["slug"] == "check-mesh" and (lib / "check-mesh" / "SKILL.md").read_text(encoding="utf-8").count("## ") == 4
+        assert "apps: [phidias]" in (lib / "check-mesh" / "SKILL.md").read_text(encoding="utf-8")
+        assert c.post("/api/agent/skills/create", json={"slug": "x", "description": "too short"}).status_code == 400
+        state = c.get("/api/agent/skills").json()
+        assert [s["slug"] for s in state["shelf"]] == ["game-scenery-remodel", "fastapi-patterns", "check-mesh"] and state["choices"]["remove"] == ["mesh-lods"]
         # with the library gone the agents still have the copy
         shelf.library, shelf._checked = str(tmp_path / "nowhere"), 0.0
         import phidias_hoard.hoard_link.fam_mail as fam_mail
         real, fam_mail.faustus_dir = fam_mail.faustus_dir, lambda *a, **k: None
         try:
-            assert [s["slug"] for s in c.get("/api/skills").json()["skills"]] == ["game-scenery-remodel", "mesh-lods"]
+            assert [s["slug"] for s in c.get("/api/agent/skills").json()["shelf"]] == ["game-scenery-remodel", "fastapi-patterns", "check-mesh"]
         finally:
             fam_mail.faustus_dir = real
     finally:

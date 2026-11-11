@@ -8,7 +8,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   procedures its work needs (how to remodel game scenery with these tools, how to produce Blender assets, how to prepare
   3D for the web, how to verify a result) and hands them to every agent that connects: they are named in what the agent
   reads on connecting, read with `skills_list` and `skill_read`, and offered as prompts. They are copies kept with the
-  app, refreshed when the library improves one; the "Skills" button shows them.
+  app, refreshed when the library improves one. The "Skills" button opens the page where you choose them: what the
+  app carries, the whole library with search, add, take away, read, and a form to write a new skill.
 - **Remodelling** (the main way of working): the game model is taken apart into its pieces and each one is built
   again in Blender with modelling operations, in clean quads, using the original only as the reference for sizes and
   positions. Hipped roofs get real half-round tiles, hip ridges, a concave slope and upturned eaves; storeys get

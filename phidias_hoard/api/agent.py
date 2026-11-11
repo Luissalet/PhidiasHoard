@@ -24,4 +24,4 @@ def _call(name: str, arguments: dict[str, Any], request: Request) -> Any:
 router = APIRouter()
 router.include_router(make_agent_router(tools_fn=tool_catalog, call_fn=_call, token_fn=lambda request: services(request).token,
                                         instructions=AGENT_INSTRUCTIONS, app_name="phidias", skills=SHELF))
-router.include_router(family_skills.make_router(SHELF))
+

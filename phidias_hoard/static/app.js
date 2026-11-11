@@ -451,40 +451,6 @@ async function openSettings() {
   } catch (err) { fail(err); }
 }
 
-// ------------------------------------------------------------------ skills
-async function openSkills(fresh) {
-  let s;
-  try {
-    const r = await fetch(fresh ? '/api/skills/refresh' : '/api/skills', { method: fresh ? 'POST' : 'GET' });
-    s = await r.json();
-    if (!r.ok) throw new Error(s.error || r.statusText);
-  } catch (err) { fail(err); return; }
-  const rows = (s.shelf || s.skills || []);
-  const when = s.refreshed_at ? new Date(s.refreshed_at * 1000).toLocaleString('es-ES') : '';
-  const body = [el('p', { class: 'hint', text: rows.length
-    ? `Los agentes que se conectan a Phidias reciben estos ${rows.length} procedimientos de la biblioteca de skills de Faustus.${when ? ' Última copia: ' + when + '.' : ''}`
-    : 'No hay ninguna skill copiada: no encuentro la biblioteca de skills de Faustus en este equipo.' })];
-  if (fresh && s.source === 'library') {
-    const parts = [['añadidas', s.added], ['actualizadas', s.updated], ['retiradas', s.removed]].filter(([, v]) => v && v.length).map(([k, v]) => `${k}: ${v.join(', ')}`);
-    body.push(el('p', { class: 'hint', text: parts.length ? parts.join(' · ') : 'Todo estaba al día.' }));
-  }
-  rows.forEach((k) => {
-    const view = el('button', { class: 'btn small', type: 'button', text: 'Leer' });
-    view.addEventListener('click', async () => {
-      try {
-        const r = await fetch('/api/skills/' + encodeURIComponent(k.slug));
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || r.statusText);
-        await modal({ title: k.name, body: [el('pre', { class: 'skill-text', text: j.text })], buttons: [{ label: 'Cerrar', value: null }] });
-      } catch (err) { fail(err); }
-    });
-    body.push(el('div', { class: 'skill-row' },
-      el('div', {}, el('strong', { text: k.name + (k.version ? '  ' + k.version : '') }), el('div', { class: 'hint', text: k.description })), view));
-  });
-  const r = await modal({ title: 'Skills', body, buttons: [{ label: 'Cerrar', value: null }, { label: 'Actualizar desde la biblioteca', value: 'refresh', kind: 'primary' }] });
-  if (r && r.value === 'refresh') openSkills(true);
-}
-
 // ------------------------------------------------------------------ wiring
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
@@ -494,7 +460,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 $('lib-search').addEventListener('input', drawLibrary);
 $('lib-refresh').addEventListener('click', () => loadLibrary(true));
 $('btn-settings').addEventListener('click', openSettings);
-$('btn-skills').addEventListener('click', () => openSkills(false));
+$('btn-skills').addEventListener('click', () => window.open('/api/agent/skills/page', '_blank', 'noopener'));
 for (const id of ['s-size', 's-edge', 's-faces', 's-ground', 's-base', 's-plinth']) $(id).addEventListener('change', saveSettings);
 for (const b of $('view-seg').children) b.addEventListener('click', () => { state.which = b.dataset.which; refreshButtons(); drawResult(); loadMesh(true); });
 $('btn-sculpt').addEventListener('click', () => startJob('sculpt_start'));
