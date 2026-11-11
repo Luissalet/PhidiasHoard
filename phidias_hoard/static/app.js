@@ -401,14 +401,32 @@ function saveSettings() {
 function watchJob(id) {
   clearInterval(state.poll);
   $('job').hidden = false;
+  const cancel = $('job-cancel');
+  cancel.hidden = true;
+  let cancelling = false;
+  cancel.onclick = async () => {
+    cancelling = true;
+    cancel.disabled = true;
+    try {
+      await call('job_cancel', { job_id: id });
+    } catch (err) {
+      fail(err);
+    } finally {
+      cancelling = false;
+    }
+  };
   const tick = async () => {
     let j;
     try { j = await call('job_status', { job_id: id }); } catch (err) { clearInterval(state.poll); state.poll = null; $('job').hidden = true; refreshButtons(); return; }
     $('job-stage').textContent = `${j.kind === 'close' ? 'Cerrando' : (j.kind === 'direct' ? 'Dirigiendo' : (j.kind.startsWith('remodel') ? 'Remodelando' : 'Esculpiendo'))} · ${j.stage}`;
     $('job-fill').style.width = `${Math.round(j.progress * 100)}%`;
-    if (j.state === 'done' || j.state === 'error') {
+    cancel.hidden = !j.cancellable && !j.cancel_requested;
+    cancel.disabled = cancelling || !j.cancellable;
+    cancel.textContent = j.cancel_requested ? 'Cancelando…' : 'Cancelar trabajo';
+    if (['done', 'error', 'cancelled'].includes(j.state)) {
       clearInterval(state.poll); state.poll = null; $('job').hidden = true;
       if (j.state === 'error') toast(j.error, 'err', 12000);
+      else if (j.state === 'cancelled') toast('Trabajo cancelado.');
       else toast(j.kind === 'close' ? 'Sólido cerrado listo.' : (j.kind.startsWith('remodel') ? 'Remodelado listo.' : 'Esculpido listo.'), 'ok');
       if (state.project && state.project.id === j.project_id) {
         const p = await call('project_get', { project_id: j.project_id });

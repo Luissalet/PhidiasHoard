@@ -56,6 +56,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 - **Sculpting** (the other way: displacement on a dense triangle mesh): the mesh is refined only where the relief needs it, down to the finest detail you ask for (0.2 to
   0.3 mm for filament, 0.1 mm for resin), inside a triangle budget; when the detail does not fit, it coarsens evenly
   and says so. Neighbouring triangles always agree on their cuts, so the surface never opens.
+  Use **Cancel job** in the progress bar to stop a sculpt or directed sculpt at its next checkpoint.
+  Phidias keeps the last finished sculpt.
 - **Ground block**: the faces that look up with nothing below them are closed into a solid block down to a base, so
   terrain prints without supports underneath. Optional rectangular or round plinth.
 - **Watertight solid**: one button fuses everything into a single closed solid with Blender in the background

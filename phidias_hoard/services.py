@@ -8,6 +8,7 @@ import os
 import queue
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -35,6 +36,11 @@ SKIP_DIRS = {"trabajo", "originales", "herramientas", "node_modules", ".git", "_
 PROJECT_SETTINGS = ("size_mm", "min_edge_mm", "tolerance_mm", "max_faces", "ground", "base_mm", "plinth", "plinth_margin_mm",
                     "normal_cutoff_mm", "sheet_mm")
 RESULTS = ("sculpt", "closed", "remodel")
+CANCELLABLE_JOBS = {"sculpt", "direct"}
+
+
+class _JobCancelled(Exception):
+    pass
 
 
 class Services:
@@ -492,19 +498,39 @@ class Services:
                                "Comprueba que Faustus y las Sparks están en marcha, o indica un servidor en Ajustes.")
         return self._enqueue("direct", pid, {"rounds": int(rounds or self.settings["director_rounds"]), "wish": wish})
 
-    def _do_direct(self, pid: str, say, params: dict[str, Any]) -> dict[str, Any]:
+    def _do_direct(self, pid: str, say, params: dict[str, Any], begin_publish) -> dict[str, Any]:
         outcome = director.run(self, pid, params["rounds"], params["wish"], lambda stage, frac: say(stage, frac * 0.7))
-        final = self._do_sculpt(pid, lambda stage, frac: say("esculpido final: " + stage, 0.7 + frac * 0.3))
+        final = self._do_sculpt(pid, lambda stage, frac: say("esculpido final: " + stage, 0.7 + frac * 0.3), begin_publish)
         return {**final, "director": {k: outcome[k] for k in ("rounds", "verdict", "notes")}}
 
     def _job_public(self, job: dict[str, Any]) -> dict[str, Any]:
-        return {k: job[k] for k in ("id", "kind", "project_id", "state", "stage", "progress", "error", "created", "finished", "result")}
+        return {k: job[k] for k in ("id", "kind", "project_id", "state", "stage", "progress", "error", "created",
+                                    "finished", "result", "cancellable", "cancel_requested")}
 
     def job(self, job_id: str) -> dict[str, Any]:
-        job = self.jobs.get(job_id)
-        if job is None:
-            raise PhidiasError("not_found", "No hay ningún trabajo con ese id.")
-        return self._job_public(job)
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None:
+                raise PhidiasError("not_found", "No hay ningún trabajo con ese id.")
+            return self._job_public(job)
+
+    def cancel_job(self, job_id: str) -> dict[str, Any]:
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None:
+                raise PhidiasError("not_found", "No hay ningún trabajo con ese id.")
+            if job["state"] == "cancelled" or job["cancel_requested"]:
+                return self._job_public(job)
+            if not job["cancellable"] or job["state"] not in ("queued", "running"):
+                raise PhidiasError("conflict", "Ese trabajo ya no se puede cancelar.")
+            job.update(cancel_requested=True, cancellable=False, stage="cancelando")
+            if job["state"] == "queued":
+                self._mark_cancelled(job)
+            return self._job_public(job)
+
+    @staticmethod
+    def _mark_cancelled(job: dict[str, Any]) -> None:
+        job.update(state="cancelled", stage="cancelado", finished=time.time(), cancellable=False)
 
     def _enqueue(self, kind: str, pid: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         self.store.get(pid)
@@ -513,10 +539,14 @@ class Services:
                 if j["project_id"] == pid and j["state"] in ("queued", "running"):
                     raise PhidiasError("busy", "Ese proyecto ya tiene un trabajo en marcha.", "Consulta job_status y espera a que acabe.")
             job = {"id": uuid.uuid4().hex[:10], "kind": kind, "project_id": pid, "state": "queued", "stage": "en cola", "progress": 0.0,
-                   "error": "", "created": time.time(), "finished": None, "result": None, "params": params or {}}
+                   "error": "", "created": time.time(), "finished": None, "result": None, "params": params or {},
+                   "cancellable": kind in CANCELLABLE_JOBS, "cancel_requested": False}
             self.jobs[job["id"]] = job
             while len(self.jobs) > 60:
-                self.jobs.popitem(last=False)
+                expired = next((k for k, v in self.jobs.items() if v["state"] not in ("queued", "running")), None)
+                if expired is None:
+                    break
+                self.jobs.pop(expired)
         if self.config.background and self._worker is not None:
             self._queue.put(job["id"])
         else:
@@ -544,24 +574,38 @@ class Services:
                 self._execute(job)
 
     def _execute(self, job: dict[str, Any]) -> None:
-        job["state"] = "running"
+        with self._lock:
+            if job["state"] != "queued":
+                return
+            job["state"] = "running"
 
         def say(stage: str, frac: float) -> None:
-            job["stage"], job["progress"] = stage, round(float(frac), 3)
+            with self._lock:
+                if job["cancel_requested"]:
+                    raise _JobCancelled()
+                job["stage"], job["progress"] = stage, round(float(frac), 3)
+
+        def begin_publish() -> None:
+            with self._lock:
+                if job["cancel_requested"]:
+                    raise _JobCancelled()
+                job.update(cancellable=False, stage="guardando el resultado")
 
         try:
             if job["kind"] == "sculpt":
-                job["result"] = self._do_sculpt(job["project_id"], say)
+                job["result"] = self._do_sculpt(job["project_id"], say, begin_publish)
             elif job["kind"] == "remodel":
                 job["result"] = self._do_remodel(job["project_id"], say)
             elif job["kind"] == "remodel_direct":
                 job["result"] = director.run_remodel(self, job["project_id"], job["params"]["rounds"], job["params"]["wish"], say)
             elif job["kind"] == "direct":
-                job["result"] = self._do_direct(job["project_id"], say, job["params"])
+                job["result"] = self._do_direct(job["project_id"], say, job["params"], begin_publish)
             else:
                 job["result"] = self._do_close(job["project_id"], say)
             job["state"] = "done"
             job["stage"], job["progress"] = "hecho", 1.0
+        except _JobCancelled:
+            self._mark_cancelled(job)
         except PhidiasError as exc:
             job["state"], job["error"] = "error", str(exc)
         except MemoryError:
@@ -569,9 +613,10 @@ class Services:
         except Exception as exc:
             log.exception("job %s", job["id"])
             job["state"], job["error"] = "error", f"{type(exc).__name__}: {exc}"
-        job["finished"] = time.time()
+        with self._lock:
+            job.update(cancellable=False, finished=job["finished"] or time.time())
 
-    def _do_sculpt(self, pid: str, say) -> dict[str, Any]:
+    def _do_sculpt(self, pid: str, say, begin_publish) -> dict[str, Any]:
         project = self.store.get(pid)
         scene = self.scene(pid)
         st = self._settings_of(project)
@@ -581,22 +626,26 @@ class Services:
         say("cerrando el suelo", 0.82)
         P, F = sculpting.assemble(result, st)
         pdir = self.store.dir(pid)
-        say("escribiendo STL", 0.86)
-        size = export.write_stl(pdir / "sculpt.stl", P, F, project["name"])
-        np.save(pdir / "sculpt_P.npy", P.astype(np.float32))
-        np.save(pdir / "sculpt_F.npy", F)
-        say("vista 3D", 0.9)
-        limit = int(self.settings["preview_faces"])
-        if len(result.F) > limit:
-            light = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": limit, "ground": False})
-            small = sculpting.sculpt(scene, rec, light)
-            (pdir / "sculpt.bin").write_bytes(export.viewer_buffers(small.P, small.F))
-        else:
-            (pdir / "sculpt.bin").write_bytes(export.viewer_buffers(result.P, result.F))
-        say("imagen", 0.95)
-        preview.render(result.P, result.F, size=640).save(pdir / "sculpt.png")
-        info = {**result.info, "file_bytes": size, "triangles_total": int(len(F)), "open_edges": sculpting.open_edges(F, len(P)),
-                "seconds": round(time.time() - t0, 1), "at": time.time(), "settings": {k: getattr(st, k) for k in PROJECT_SETTINGS}}
+        with tempfile.TemporaryDirectory(prefix="sculpt-", dir=pdir) as scratch:
+            draft = Path(scratch)
+            say("escribiendo STL", 0.86)
+            size = export.write_stl(draft / "sculpt.stl", P, F, project["name"])
+            np.save(draft / "sculpt_P.npy", P.astype(np.float32))
+            np.save(draft / "sculpt_F.npy", F)
+            say("vista 3D", 0.9)
+            limit = int(self.settings["preview_faces"])
+            view = result
+            if len(result.F) > limit:
+                light = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": limit, "ground": False})
+                view = sculpting.sculpt(scene, rec, light, lambda stage, frac: say(f"vista 3D: {stage}", 0.9 + frac * 0.05))
+            (draft / "sculpt.bin").write_bytes(export.viewer_buffers(view.P, view.F))
+            say("imagen", 0.95)
+            preview.render(result.P, result.F, size=640).save(draft / "sculpt.png")
+            info = {**result.info, "file_bytes": size, "triangles_total": int(len(F)), "open_edges": sculpting.open_edges(F, len(P)),
+                    "seconds": round(time.time() - t0, 1), "at": time.time(), "settings": {k: getattr(st, k) for k in PROJECT_SETTINGS}}
+            begin_publish()
+            for artifact in draft.iterdir():
+                artifact.replace(pdir / artifact.name)
         project = self.store.get(pid)
         project.setdefault("results", {})["sculpt"] = info
         project["results"].pop("closed", None)

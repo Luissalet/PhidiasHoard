@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import subprocess
+import threading
+import time
 import zipfile
 
 import pytest
@@ -152,6 +154,51 @@ def test_errors_are_explained(client):
     assert r.status_code == 400 and "esculpir" in r.json()["error"]
     r = client.post("/api/ui/call", json={"name": "material_set", "arguments": {"project_id": p["id"], "materials": {"nada": {"recipe": "flat"}}}})
     assert r.status_code == 404
+
+
+def _wait_job(client, job_id):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        job = call(client, "job_status", job_id=job_id)
+        if job["state"] in ("done", "cancelled", "error"):
+            return job
+        time.sleep(0.02)
+    pytest.fail(f"Job {job_id} did not reach a terminal state")
+
+
+def test_cancelling_running_and_queued_sculpts_preserves_last_result(client, monkeypatch):
+    from phidias_hoard.engine import preview
+
+    entry = call(client, "library_scan")["entries"][0]
+    a = call(client, "project_create", source=entry["path"], inner=entry["inner"])
+    b = call(client, "project_create", source=entry["path"], inner=entry["inner"])
+    assert call(client, "sculpt_start", project_id=a["id"])["state"] == "done"
+    previous = client.get(f"/api/projects/{a['id']}/download/sculpt.stl").content
+    render = preview.render
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_preview(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return render(*args, **kwargs)
+
+    monkeypatch.setattr(preview, "render", slow_preview)
+    client.svc.config.background = True
+    client.svc.start()
+    try:
+        active = call(client, "sculpt_start", project_id=a["id"])
+        assert entered.wait(5)
+        queued = call(client, "sculpt_start", project_id=b["id"])
+        assert call(client, "job_cancel", job_id=queued["id"])["state"] == "cancelled"
+        cancellation = call(client, "job_cancel", job_id=active["id"])
+        assert cancellation["cancel_requested"] and cancellation["state"] == "running"
+    finally:
+        release.set()
+    assert _wait_job(client, active["id"])["state"] == "cancelled"
+    assert _wait_job(client, queued["id"])["state"] == "cancelled"
+    assert client.get(f"/api/projects/{a['id']}/download/sculpt.stl").content == previous
+    assert not list(client.svc.store.dir(a["id"]).glob("sculpt-*"))
+    assert not call(client, "project_get", project_id=b["id"])["results"]
 
 
 class FakeModel:
