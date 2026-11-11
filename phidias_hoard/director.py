@@ -104,22 +104,65 @@ def clean_change(raw: Any, info: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def result_views(before: tuple[np.ndarray, np.ndarray], after: tuple[np.ndarray, np.ndarray], spots: list[tuple[str, np.ndarray, float]]) -> list[bytes]:
-    """The sculpt next to the original from two sides, plus close-ups of the biggest materials."""
+REVIEW_ANGLES = ((35, 30, "three-quarter view"), (215, 22, "from behind, lower"))
+CLOSEUP_INSTRUCTIONS = (
+    'If you need a closer look before deciding, return {"closeups": ["<exact material name>", '
+    '{"center": [x, y, z], "radius": 0.1}]}. Coordinates are fractions of the current mesh bounds (0 to 1), '
+    'with Z up; radius is a fraction of the longest dimension. Request at most three close-ups.'
+)
+
+
+def _review_views(before, after, previous):
     BP, BF = before
     P, F = after
-    out = []
-    for yaw, pitch, label in ((35, 30, "three-quarter view"), (215, 22, "from behind, lower")):
-        pair = preview.side_by_side([preview.render(BP, BF, yaw=yaw, pitch=pitch, size=560), preview.render(P, F, yaw=yaw, pitch=pitch, size=560)],
-                                    ["game model", "sculpt"])
-        out.append(_png(_label(pair, label)))
-    closeups = []
-    for name, centre, radius in spots[:4]:
-        img = preview.render(P, F, yaw=30, pitch=28, size=380, region=[*centre, radius])
-        closeups.append(_label(img, f"close-up: {name}"))
-    if closeups:
-        out.append(_png(preview.side_by_side(closeups)))
-    return out
+    images, current = [], []
+    for i, (yaw, pitch, label) in enumerate(REVIEW_ANGLES):
+        base = preview.render(BP, BF, yaw=yaw, pitch=pitch, size=500)
+        now = preview.render(P, F, yaw=yaw, pitch=pitch, size=500)
+        panels = [base, previous[i], now] if previous else [base, now]
+        labels = ["game model", "previous trial", "current trial"] if previous else ["game model", "current trial"]
+        images.append(_png(_label(preview.side_by_side(panels, labels), label)))
+        current.append(now)
+    return images, current
+
+
+def _material_spot(trial, info: dict[str, Any], size_mm: float):
+    sel = trial.M == info["index"]
+    if not sel.any():
+        return None
+    pts = trial.P[trial.F[sel]].reshape(-1, 3)
+    centre = np.median(pts, axis=0)
+    radius = float(np.clip(np.percentile(np.linalg.norm(pts - centre, axis=1), 60), size_mm * 0.035, size_mm * 0.25))
+    return centre, radius
+
+
+def _requested_spots(request, trial, materials, size_mm):
+    if not isinstance(request, list):
+        return []
+    lo = trial.P.min(0)
+    span = trial.P.max(0) - lo
+    spots = []
+    for item in request[:3]:
+        if isinstance(item, str):
+            if item in materials and (spot := _material_spot(trial, materials[item], size_mm)) is not None:
+                spots.append((item, *spot))
+            continue
+        if not isinstance(item, dict):
+            continue
+        try:
+            centre = np.asarray(item.get("center"), dtype=float)
+            radius = float(item.get("radius", 0.1))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if centre.shape == (3,) and np.isfinite(centre).all() and np.all((0 <= centre) & (centre <= 1)) and np.isfinite(radius):
+            spots.append(("requested region", lo + centre * span, float(np.clip(radius, 0.03, 0.35)) * size_mm))
+    return spots
+
+
+def _closeup_sheet(trial, spots) -> bytes:
+    images = [_label(preview.render(trial.P, trial.F, yaw=30, pitch=28, size=380, region=[*centre, radius]), name)
+              for name, centre, radius in spots]
+    return _png(preview.side_by_side(images))
 
 
 def run(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]) -> dict[str, Any]:
@@ -144,6 +187,7 @@ def run(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]
 
     # ---- 2. sculpt, look, and sculpt again while the model asks for it
     verdict, notes = "ok", ""
+    previous_views = []
     for attempt in range(max(1, rounds)):
         frac = 0.1 + 0.7 * attempt / max(1, rounds)
         say(f"esculpiendo la prueba {attempt + 1}", frac)
@@ -151,31 +195,41 @@ def run(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]
         st = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": min(int(project["settings"]["max_faces"]), int(svc.settings["director_faces"]))})
         rec = {n: sculpting.MaterialRecipe.from_dict(m) for n, m in project["materials"].items()}
         trial = sculpting.sculpt(scene, rec, st)
-        if attempt == rounds - 1 and rounds > 1:
-            break                                          # the last round's changes go straight to the final sculpt
         say(f"el modelo mira la prueba {attempt + 1}", frac + 0.25 / max(1, rounds))
+        materials = project["materials"]
         spots = []
         for n in names[:8]:
-            idx = project["materials"][n]["index"]
-            sel = trial.M == idx
-            if project["materials"][n]["recipe"] != "drop" and sel.sum() > 30:
-                pts = trial.P[trial.F[sel]].reshape(-1, 3)
-                centre = np.median(pts, axis=0)
-                spots.append((n, centre, float(np.clip(np.percentile(np.linalg.norm(pts - centre, axis=1), 60), 6.0, st.size_mm / 4))))
+            if materials[n]["recipe"] != "drop" and (spot := _material_spot(trial, materials[n], st.size_mm)) is not None:
+                spots.append((n, *spot))
+                if len(spots) == 4:
+                    break
         scale0 = st.size_mm / max(float(scene.extents.max()), 1e-9)
         before = ((scene.P - scene.P.min(0)) * scale0, scene.F)
-        answer = llm.ask(SYSTEM, f'Scene: "{project["name"]}". {scale}{wish_text}\nThis is test sculpt {attempt + 1}. Current materials:\n{_table(project, names)}\n\n'
-                         'Look at the sculpt next to the game model and at the close-ups. Judge it as the maker of a diorama: is the relief readable '
-                         'and deep enough at this size, is anything noisy, blobby or damaged, is a surface still bare that should have texture, '
-                         'is something sculpted that should be smooth or removed? If it is good, accept it. If not, change only what needs changing. '
-                         'Answer: {"verdict": "ok" | "redo", "notes": "what you see and why, two or three sentences", '
-                         '"materials": {"<name>": {fields to change}}}', result_views(before, (trial.P, trial.F), spots))
+        images, current_views = _review_views(before, (trial.P, trial.F), previous_views)
+        if spots:
+            images.append(_closeup_sheet(trial, spots))
+        compare = "Compare the previous and current trials in the matching views. " if previous_views else ""
+        prompt = (f'Scene: "{project["name"]}". {scale}{wish_text}\nThis is test sculpt {attempt + 1}. Current materials:\n{_table(project, names)}\n\n'
+                  f'{compare}Look at the game model, the current sculpt and the close-ups. Judge if the relief is readable and deep enough '
+                  'for a printed diorama. Look for noisy or damaged surfaces, missing relief and detail where it should be smooth. '
+                  'If the sculpt is ready, accept it. Otherwise change only what needs changing. '
+                  'Answer: {"verdict": "ok" | "redo", "notes": "what you see and why", "materials": {"<name>": {fields to change}}}')
+        answer = llm.ask(SYSTEM, f"{prompt}\n{CLOSEUP_INSTRUCTIONS}", images)
+        requested = _requested_spots(answer.get("closeups"), trial, materials, st.size_mm)
+        if requested:
+            say(f"el modelo mira primeros planos de la prueba {attempt + 1}", frac + 0.35 / max(1, rounds))
+            answer = llm.ask(SYSTEM, f"{prompt}\nThe last image contains the requested close-ups. Give your verdict and changes now.",
+                             [*images, _closeup_sheet(trial, requested)])
+        previous_views = current_views
         verdict = "redo" if str(answer.get("verdict", "")).lower() == "redo" else "ok"
         notes = str(answer.get("notes", ""))[:800]
         changes = {n: clean_change(c, project["materials"][n]) for n, c in (answer.get("materials") or {}).items() if n in project["materials"]}
         changes = {n: c for n, c in changes.items() if c}
         log.append({"step": f"prueba {attempt + 1}", "at": time.time(), "verdict": verdict, "notes": notes, "materials": changes,
                     "triangles": trial.info["triangles"]})
+        if requested:
+            log[-1]["closeups"] = [{"label": name, "center_mm": centre.tolist(), "radius_mm": radius}
+                                   for name, centre, radius in requested]
         if verdict == "ok" or not changes:
             break
         _apply(svc, pid, changes)

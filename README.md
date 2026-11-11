@@ -50,8 +50,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   size in millimetres whatever the UVs are: rock, cracks, cobbles, bricks, planks, roof tiles, bark, ripples and
   column flutes, each with the size of its features and its depth.
 - **Directed by the model**: one button hands the sculpt to the family's vision model. It looks at every material and
-  says what it is, chooses recipe, depth, cut-outs and added detail, has a test sculpted, looks at it next to the
-  original from several sides and close up, and redoes it while it is not satisfied; then it makes the final sculpt.
+  says what it is, chooses recipe, depth, cut-outs and added detail, and compares each test with the original and
+  the previous trial. It can ask for close-ups of a material or an area before deciding whether to redo the sculpt.
   You can tell it in words what you want. What it decided and why stays with the project.
 - **Sculpting** (the other way: displacement on a dense triangle mesh): the mesh is refined only where the relief needs it, down to the finest detail you ask for (0.2 to
   0.3 mm for filament, 0.1 mm for resin), inside a triangle budget; when the detail does not fit, it coarsens evenly

@@ -70,7 +70,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   on top of any recipe; the mesh is refined enough to draw the pattern.
 - Direction by the vision model (`direct_start` with optional `rounds` and `wish`): reads the materials from pictures,
   sets recipe, depth, cut-out, steps and enrich per material, sculpts a test inside `director_faces`, looks at it
-  next to the original and at close-ups, and redoes it up to `director_rounds` times before the final sculpt. Its
+  next to the original and the previous trial. It can request close-ups by material or coordinates before giving
+  its verdict, and redoes the trial up to `director_rounds` before the final sculpt. Its
   answers are clamped (depths, sizes, no normal recipe without a normal map, no cut-out on atlases). The project keeps
   `director` (model, wish and the log of each step with verdict, notes and changes) and `what` per material.
   Model: the family's vision model through Hoard Link, or `llm_url`/`llm_model` in settings.
