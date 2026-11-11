@@ -303,6 +303,7 @@ def test_agents_get_the_skills_the_app_asks_the_library_for(client, tmp_path):
     shelf.wants = {"slugs": ["game-scenery-remodel", "blender-asset-production", "not-there"], "tags": ["3d", "mesh"], "limit": 8}
     try:
         c, svc = client, client.svc
+        assert c.post("/api/agent/skills/refresh").json()["skills"] == 3
         listing = c.get("/api/agent/tools").json()
         names = [t["name"] for t in listing["tools"]]
         assert {"skills_list", "skill_read", "skills_refresh", "skills_library", "skills_assign"} <= set(names) and "remodel_start" in names
