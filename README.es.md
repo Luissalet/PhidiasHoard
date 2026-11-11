@@ -39,6 +39,8 @@ milímetros.
   - *Relieve*: se talla lo que la textura dibuja más oscuro que lo que lo rodea (juntas, grietas, estrías) y sus
     zonas claras y oscuras se convierten en bultos suaves. Las texturas pixel art de 8 a 128 píxeles se amplían antes,
     para que una línea de un píxel sea una ranura con paredes inclinadas. Los atlas horneados se leen isla a isla.
+  - *Relieve estimado* (`depth`): estima relieve relativo a partir del color con un modelo Depth Anything V2 local.
+    Procesa cada isla del atlas por separado y usa la profundidad del material para ajustar la amplitud.
   - *Solo líneas*, *liso* (agua, cristal, colores planos) y *quitar* (planos de sombra, llamas, brillos).
   - *Escalones*: una rampa cuya textura dibuja escalones pasa a tener escalones de verdad, con huellas planas y
     contrahuellas, tantos como dibuja la textura (o el número que le des).
@@ -84,7 +86,11 @@ python -m venv .venv
 ```
 
 Escucha en http://127.0.0.1:5251. Los datos están en `data/` (`PHIDIAS_DATA_DIR` para moverlos). Blender se encuentra
-solo (o se indica su ruta en Ajustes); sin él funciona todo menos el sólido cerrado. Pruebas: `python -m pytest`.
+solo (o se indica su ruta en Ajustes). Pruebas: `python -m pytest`.
+
+Para **Relieve estimado**, selecciona en Ajustes una carpeta local con los [pesos de Depth Anything V2 Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf).
+Instala las dependencias opcionales con `pip install ".[depth]"` o indica un Python que ya tenga Torch y Transformers.
+La inferencia se ejecuta en el PC por CPU.
 
 ## Límites
 

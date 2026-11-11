@@ -2,8 +2,6 @@
 
 - Leer FBX y `.blend` convirtiéndolos con Blender en segundo plano (los packs de DS traen DAE y FBX; con DAE basta
   hoy, pero hay packs que solo traen FBX).
-- Relieve con modelo: estimar el mapa de alturas de una textura con una red (normales o profundidad a partir del
-  color) para los atlas horneados sin normales y para texturas donde las líneas oscuras no bastan.
 - Escalones por forma: detectar rampas con textura periódica sin depender del nombre del material.
 - Volumen para hojas y árboles en plano (copas a partir de las láminas cruzadas).
 - Partir un modelo grande en piezas con encajes para impresoras pequeñas, y cortes por plano.

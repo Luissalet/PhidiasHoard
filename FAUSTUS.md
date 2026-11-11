@@ -55,8 +55,10 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   - Baked atlases are recognised (a texture on a secondary UV set, or a big picture mostly empty with every UV inside
     it) and never read as tiling textures.
 - Show a material (`material_look`): texture, normal map and the height map a recipe would carve.
-- Recipes (`material_set`; `"*"` = every material): `normal`, `relief`, `lines`, `steps`, `flat`, `drop`, `auto`;
+- Recipes (`material_set`; `"*"` = every material): `normal`, `relief`, `depth`, `lines`, `steps`, `flat`, `drop`, `auto`;
   `depth_mm`, `invert`, `smooth`, `cutout`, `steps` (edges per tile, 0 = counted from the texture).
+- Estimated relief (`depth`) uses the local model folder `depth_model` and optional `depth_python` for Torch and
+  Transformers. It runs on CPU and saves the estimated map in the project's `depth-maps` folder.
 - Added detail (`material_set` with `enrich: {pattern, size_mm, depth_mm}`, `no_enrich` removes it): rock, cracks,
   cobble, bricks, planks, tiles, bark, ripples, flutes, carved wood, scales and moss, at real size in millimetres.
   Flutes follow the shaft and tiles follow the slope,

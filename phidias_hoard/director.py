@@ -195,8 +195,9 @@ def run(svc, pid: str, rounds: int, wish: str, say: Callable[[str, float], None]
         project = svc.store.get(pid)
         st = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": min(int(project["settings"]["max_faces"]), int(svc.settings["director_faces"]))})
         rec = {n: sculpting.MaterialRecipe.from_dict(m) for n, m in project["materials"].items()}
+        inferred = svc._learned_maps(pid, scene, rec, lambda stage, _progress: say(stage, frac))
         trial = sculpting.sculpt(scene, rec, st, lambda stage, progress: say(
-            f"prueba {attempt + 1}: {stage}", frac + progress * 0.22 / max(1, rounds)))
+            f"prueba {attempt + 1}: {stage}", frac + progress * 0.22 / max(1, rounds)), inferred=inferred)
         say(f"el modelo mira la prueba {attempt + 1}", frac + 0.25 / max(1, rounds))
         materials = project["materials"]
         spots = []

@@ -141,6 +141,42 @@ def test_plinth_engraving_and_figure_recess_are_cut_at_print_size(tmp_path):
     assert pocket[:, 0].min() > result.P[:, 0].max()
 
 
+def test_learned_relief_keeps_atlas_islands_separate_and_reuses_cache(tmp_path, monkeypatch):
+    from phidias_hoard.engine import learned_relief
+
+    atlas = np.zeros((64, 64, 4), dtype=np.uint8)
+    atlas[5:27, 5:27] = (128, 130, 90, 255)
+    atlas[37:59, 37:59] = (140, 80, 120, 255)
+    pos = np.array([[0, 0, 0], [1, 0, 0], [0, 0, 1], [1, 0, 1]])
+    faces = np.array([[0, 1, 2], [1, 3, 2]])
+    uv = np.array([[[0, 0], [1, 0], [0, 1]], [[1, 0], [1, 1], [0, 1]]])
+    scene = meshio.Scene(pos, faces, uv, np.zeros(2, dtype=int), [meshio.Material("atlas", albedo=atlas, atlas=True)])
+    model = tmp_path / "weights"
+    model.mkdir()
+    (model / "model.safetensors").touch()
+    (model / "config.json").touch()
+    calls = []
+
+    def predict(args, **kwargs):
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        paths = list(Path(args[-1]).glob("*.png"))
+        calls.append(len(paths))
+        for path in paths:
+            with Image.open(path) as img:
+                x, y = np.meshgrid(np.arange(img.width), np.arange(img.height))
+            np.save(path.with_suffix(".npy"), (np.sin(x / 2) + np.cos(y / 3)).astype(np.float32))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(learned_relief.subprocess, "run", predict)
+    cache = tmp_path / "cache"
+    h = learned_relief.height_map(scene, 0, str(model), "", cache)
+    assert np.ptp(h[5:27, 5:27]) > 0.5 and np.ptp(h[37:59, 37:59]) > 0.5
+    assert not h[27:37].any()
+    assert np.array_equal(learned_relief.height_map(scene, 0, str(model), "", cache), h) and calls == [2]
+
+
 def write_wall(tmp_path, with_shadow=True):
     """A floor, a wall standing on it and (optionally) a shadow plane, as an OBJ with its MTL and textures."""
     brick_texture(tmp_path / "brick.png")

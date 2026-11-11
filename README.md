@@ -35,6 +35,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   - *Relief*: what the texture draws darker than its surroundings is carved (joints, cracks, flutes) and its light
     and dark areas become soft bumps. Pixel-art textures of 8 to 128 pixels are enlarged first so a one-pixel line
     becomes a groove with sloped walls. Baked atlases are read island by island.
+  - *Estimated relief* (`depth`): estimate relative relief from color with a local Depth Anything V2 model.
+    Each atlas island is processed separately and the material's depth sets the amplitude.
   - *Lines only*, *flat* (water, glass, plain colours) and *remove* (shadow planes, flames, glows).
   - *Steps*: a ramp whose texture draws steps becomes real steps, with level treads and risers, as many as the
     texture draws (or the number you give).
@@ -76,7 +78,11 @@ python -m venv .venv
 ```
 
 It listens on http://127.0.0.1:5251. Data lives in `data/` (`PHIDIAS_DATA_DIR` to move it). Blender is found by itself
-(or set its path in Ajustes); without it everything works except the watertight solid. Tests: `python -m pytest`.
+(or set its path in Ajustes). Tests: `python -m pytest`.
+
+For **Estimated relief**, put the [Depth Anything V2 Small weights](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf)
+in a local folder and select it in Settings. Install the optional `depth` dependencies with `pip install ".[depth]"`
+or point Settings at an existing Python with Torch and Transformers. Inference runs locally on CPU.
 
 ## Limits
 

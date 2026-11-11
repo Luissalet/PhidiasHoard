@@ -55,7 +55,8 @@ def guess(mat: Material, depth_mm: float) -> dict[str, Any]:
     return {"recipe": recipe, "depth_mm": float(depth_mm), "invert": False, "smooth": 0.0, "cutout": cutout, "why": why}
 
 
-def sheet(mat: Material, recipe: str, invert: bool = False, smooth: float = 0.0, side: int = 384) -> "np.ndarray":
+def sheet(mat: Material, recipe: str, invert: bool = False, smooth: float = 0.0, side: int = 384,
+          *, inferred: "np.ndarray | None" = None) -> "np.ndarray":
     """Albedo | normal map | height map side by side (uint8 RGB) to judge a recipe by eye."""
     from PIL import Image
 
@@ -76,7 +77,8 @@ def sheet(mat: Material, recipe: str, invert: bool = False, smooth: float = 0.0,
         h = np.tile(saw[None, :], (256, 1)) if axis == "u" else np.tile(saw[::-1, None], (1, 256))
         h = h.astype(np.float32)
     else:
-        h = heights.height_map(mat.albedo, mat.normal, recipe, invert=invert, smooth=smooth, atlas=mat.atlas)
+        h = (-inferred if invert else inferred) if inferred is not None else heights.height_map(
+            mat.albedo, mat.normal, recipe, invert=invert, smooth=smooth, atlas=mat.atlas)
     grey = ((h * 0.5 + 0.5) * 255).astype(np.uint8)
     gap = np.full((side, 6, 3), 24, np.uint8)
     return np.concatenate([fit(mat.albedo), gap, fit(mat.normal), gap, fit(grey)], axis=1)

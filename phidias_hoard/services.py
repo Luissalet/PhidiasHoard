@@ -20,7 +20,7 @@ import numpy as np
 from . import __version__
 from .config import Config, Settings
 from . import director
-from .engine import export, finish, heights, meshio, patterns, plinth_detail, preview, recipes
+from .engine import export, finish, heights, learned_relief, meshio, patterns, plinth_detail, preview, recipes
 from .llm import ModelClient
 from .remodel import build as remodel_build
 from .remodel import pieces as remodel_pieces
@@ -57,6 +57,7 @@ class Services:
         self._queue: "queue.Queue[Optional[str]]" = queue.Queue()
         self._worker: Optional[threading.Thread] = None
         self._lock = threading.RLock()
+        self._depth_lock = threading.Lock()
         self._scenes: "OrderedDict[str, meshio.Scene]" = OrderedDict()
         self._library: Optional[dict[str, Any]] = None
 
@@ -272,8 +273,8 @@ class Services:
                                            "Materiales: " + ", ".join(list(project["materials"])[:40]))
                     cur = project["materials"][target]
                     if "recipe" in change and change["recipe"] is not None:
-                        if change["recipe"] not in ("auto", "normal", "lines", "relief", "steps", "flat", "drop"):
-                            raise PhidiasError("invalid", "recipe debe ser auto, normal, lines, relief, steps, flat o drop.")
+                        if change["recipe"] not in ("auto", "normal", "lines", "relief", "depth", "steps", "flat", "drop"):
+                            raise PhidiasError("invalid", "recipe debe ser auto, normal, lines, relief, depth, steps, flat o drop.")
                         cur["recipe"] = change["recipe"]
                         cur["why"] = ""
                     if change.get("depth_mm") is not None:
@@ -306,8 +307,25 @@ class Services:
             raise PhidiasError("not_found", f"El proyecto no tiene el material «{material}».")
         scene = self.scene(pid)
         mat = scene.materials[info["index"]]
-        arr = recipes.sheet(mat, recipe or info["recipe"], info.get("invert", False), info.get("smooth", 0.0))
+        chosen = recipe or info["recipe"]
+        inferred = self._learned_height(pid, scene, info["index"]) if chosen == "depth" else None
+        arr = recipes.sheet(mat, chosen, info.get("invert", False), info.get("smooth", 0.0), inferred=inferred)
         return meshio.texture_png(arr)
+
+    def _learned_height(self, pid: str, scene: meshio.Scene, index: int) -> np.ndarray:
+        model = self.settings["depth_model"] or os.environ.get("PHIDIAS_DEPTH_MODEL", "")
+        python = self.settings["depth_python"] or os.environ.get("PHIDIAS_DEPTH_PYTHON", "")
+        with self._depth_lock:
+            return learned_relief.height_map(scene, index, model, python, self.store.dir(pid) / "depth-maps")
+
+    def _learned_maps(self, pid, scene, materials, say):
+        maps = {}
+        for index, mat in enumerate(scene.materials):
+            recipe = materials.get(mat.name)
+            if recipe and recipe.recipe == "depth" and recipe.depth_mm > 0:
+                say(f"estimando relieve: {mat.name}", 0.01)
+                maps[index] = self._learned_height(pid, scene, index)
+        return maps
 
     def material_thumb(self, pid: str, material: str) -> bytes:
         from PIL import Image
@@ -600,7 +618,8 @@ class Services:
                                "Indica la ruta de Blender en Ajustes.")
         rec = {name: sculpting.MaterialRecipe.from_dict(m) for name, m in project["materials"].items()}
         t0 = time.time()
-        result = sculpting.sculpt(scene, rec, st, lambda stage, frac: say(stage, frac * 0.8))
+        inferred = self._learned_maps(pid, scene, rec, say)
+        result = sculpting.sculpt(scene, rec, st, lambda stage, frac: say(stage, frac * 0.8), inferred=inferred)
         say("cerrando el suelo", 0.82)
         pdir = self.store.dir(pid)
         plate = None
@@ -619,7 +638,8 @@ class Services:
             view = result
             if len(result.F) > limit:
                 light = sculpting.SculptSettings.from_dict({**project["settings"], "max_faces": limit, "ground": bool(plate is not None and st.ground)})
-                view = sculpting.sculpt(scene, rec, light, lambda stage, frac: say(f"vista 3D: {stage}", 0.9 + frac * 0.05))
+                view = sculpting.sculpt(scene, rec, light, lambda stage, frac: say(f"vista 3D: {stage}", 0.9 + frac * 0.05),
+                                        inferred=inferred)
             view_p, view_f = sculpting.assemble(view, st, plate=plate) if plate is not None else (view.P, view.F)
             (draft / "sculpt.bin").write_bytes(export.viewer_buffers(view_p, view_f))
             say("imagen", 0.95)
