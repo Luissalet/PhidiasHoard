@@ -94,7 +94,7 @@ class DirectArgs(ProjectId):
 
 
 class PieceChange(BaseModel):
-    kind: Optional[Literal["roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "keep", "drop"]] = None
+    kind: Optional[Literal["roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "organic", "keep", "drop"]] = None
     params: Optional[dict[str, Any]] = Field(None, description="roof: tiles (ribs per side), rows, concave (1-2), corner_lift (0-0.8), tile_radius, bevel. "
                                              "lathe also flutes (channels of a fluted shaft). body: bays_x, bays_y, zones (per band bottom to top: panel, lattice or plain), bars, door_bay (bay of the front, or null), "
                                              "post_section (square, round), post, beam, panel_depth. block: bevel. lathe: segments, sides (flat sides of a prism, 0 round), bevel. tiled: tiles. sweep: smooth. stairs: steps, axis (x, y), flip. "

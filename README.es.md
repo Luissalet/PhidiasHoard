@@ -17,7 +17,10 @@ milímetros.
   que no se ven; un tejado con algo más que cuatro faldones (una plataforma, una trampilla) conserva su forma y recibe
   las tejas a lo largo de sus faldones. Lo que dibujan las texturas (paneles, marcos, bandas, juntas) se modela en
   las caras: cada quad pasa a ser una retícula que sigue los téxeles donde cambia la altura, con escalones hacia
-  fuera y hacia dentro. A cada pieza solo se le ofrecen los constructores en los que su forma encaja de verdad, así
+  fuera y hacia dentro; en triángulos y en texturas giradas sobre la cara entra con una retícula fina de quads
+  (coronas, ménsulas, ornamentos). Las figuras que el juego hizo con facetas planas (estatuas, animales) se
+  redondean en una superficie suave de quads pequeños que lleva lo que dibuja su textura: plumas, ojos, pliegues. A
+  cada pieza solo se le ofrecen los constructores en los que su forma encaja de verdad, así
   que un terreno en pendiente nunca acaba convertido en bloque ni en tejado. El modelo de visión de la familia puede
   elegir qué es cada tipo y sus parámetros, mirar el resultado junto al original y corregirlo («Remodelar con IA»). Las piezas
   con la misma forma son un tipo: eliges qué es cada tipo y sus parámetros (tejas por lado, vanos, barrotes,

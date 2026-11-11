@@ -368,3 +368,22 @@ def test_texture_becomes_height_steps():
     lv = heights.texel_levels(tex)
     assert lv[0, 0] == 0 and lv[3, 3] < 0 and set(np.unique(lv)) == {int(lv[3, 3]), 0}
     assert heights.texel_levels(np.full((8, 8, 4), 128, np.uint8)) is None
+
+
+def test_a_figure_with_its_own_texture_is_rounded_not_kept():
+    from phidias_hoard.remodel import pieces
+
+    rng = np.random.default_rng(3)
+    ang = np.linspace(0, 2 * np.pi, 9)[:-1]
+    pts = [(0.0, 0.0, 0.0)] + [(np.cos(a) * (1 + 0.4 * rng.random()), np.sin(a) * (1 + 0.4 * rng.random()), z + 0.2 * rng.random())
+                               for z in np.linspace(0.5, 4, 8) for a in ang] + [(0.1, 0.0, 4.8)]
+    tris = [(0, 1 + (i + 1) % 8, 1 + i) for i in range(8)]
+    for r in range(7):
+        for i in range(8):
+            a, b = 1 + r * 8 + i, 1 + r * 8 + (i + 1) % 8
+            tris += [(a, b, b + 8), (a, b + 8, a + 8)]
+    tris += [(57 + i, 57 + (i + 1) % 8, 65) for i in range(8)]
+    uv = rng.random((len(tris), 3, 2))
+    uv[0] = [[0, 0], [1, 0], [1, 1]]
+    figure = pieces.split(_scene(pts, tris, uv=uv, albedo=np.zeros((8, 8, 4), np.uint8)), 3.0, set())[0]
+    assert figure["figure"] and pieces.guess(figure, 20)[0] == "organic" and "organic" in pieces.allowed(figure)

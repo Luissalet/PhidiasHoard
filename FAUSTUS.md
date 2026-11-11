@@ -28,6 +28,11 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   grid cut where the height changes (cuts doubled for a sloped wall, texels merged below 0.22 mm, face borders stay
   at zero, bevel limited by weight to the piece's own corners). `emboss: 0` turns it off per type; materials with
   recipe flat or drop and baked atlases are left out; depth is the material's depth_mm.
+- `organic` (a figure: irregular piece with one texture of its own, not an atlas, 40+ triangles; always allowed from
+  12 triangles): one plain subdivision, then Catmull-Clark (`level` 1-4, by edge length, capped at 60k faces), every
+  triangle ends as quads, vertices moved along their normal by the texture's height blended between texels (depth
+  limited to 3 % of the piece's size). `keep` pieces whose drawn surface is mostly triangles or turned mappings use
+  the same fine grid without the rounding.
 - Remodel direction (`remodel_start` with `direct`, `rounds`, `wish`): the vision model sees contact sheets of the
   piece types and their textures, chooses kind and params per type (only allowed kinds, params clamped), the remodel
   is built, it looks at it next to the original and may redo; its log is `project.remodel_director`. Output in `data/projects/<id>/remodel/`: `remodel.blend` (object per piece in
@@ -75,10 +80,10 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 
 ## Cannot
 
-- Remodel pieces it has no builder for: irregular rock, terrain and organic shapes (statues) stay as the cleaned
-  original (`keep`), faceted as the game has them.
-- Model a texture into faces that are triangles or whose UVs are not square on the texture (statues, fans of
-  triangles), or into pieces rebuilt by `roof`, `body`, `lathe` and `stairs`. The steps come from how light each
+- Remodel irregular rock and terrain: they stay as the cleaned original (`keep`). A figure is the game's own shape
+  rounded, not a new sculpt: parts the game made as flat sheets (wings) stay sheets, and nothing is added that the
+  shape or the texture does not hold.
+- Model a texture into pieces rebuilt by `roof`, `body`, `lathe` and `stairs`. The steps come from how light each
   texel is, so painted shading reads as relief. Tile counts, bays and bars are still parameters, not read.
 - Complete what the game culled other than by the symmetry of a square piece.
 

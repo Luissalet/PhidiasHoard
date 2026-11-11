@@ -12,7 +12,7 @@ from scipy.sparse.csgraph import connected_components
 
 from ..engine.meshio import Scene
 
-KINDS = ("roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "keep", "drop")
+KINDS = ("roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "organic", "keep", "drop")
 
 
 def split(scene: Scene, scale: float, dropped: set[str]) -> list[dict[str, Any]]:
@@ -67,6 +67,11 @@ def split(scene: Scene, scale: float, dropped: set[str]) -> list[dict[str, Any]]
             sides = {(int(abs(n[0]) >= abs(n[1])), bool((n[0] if abs(n[0]) >= abs(n[1]) else n[1]) * n[2] > 0)) for n in nrm[on]}
             extra["sheds"] = bool(float(area[on][away > 0].sum()) > 0.9 * float(area[on].sum()) and len(sides) >= 3)   # slopes falling away from its middle
         extra["triangle_materials"] = [names[i] for i in scene.M[sel]]
+        # a figure: an irregular piece with a texture of its own (a statue, an animal, a carved ornament)
+        own = [i for i in np.unique(scene.M[sel])]
+        whole = len(own) == 1 and not scene.materials[own[0]].atlas and scene.materials[own[0]].albedo is not None \
+            and 0.5 <= mats[names[own[0]]]["repeat_u"] <= 1.5 and 0.5 <= mats[names[own[0]]]["repeat_v"] <= 1.5
+        extra["figure"] = bool(whole and len(f) >= 40 and len(profile) >= 12 and not (fits["rect"] or fits["round"] or fits["sweep"]))
         extra["uvs"] = np.round(scene.UV[sel].astype(np.float64), 5).tolist()
         piece = {"id": int(k), "triangles_count": int(sel.sum()),
                  "center": [round(float(centre_xy[0]), 4), round(float(centre_xy[1]), 4), round(float(lo[2]), 4)],
@@ -287,6 +292,8 @@ def _tightest_yaw(xy: np.ndarray) -> float:
 def allowed(piece: dict[str, Any]) -> list[str]:
     """What a piece can be rebuilt as: a builder is offered only when the piece really has that builder's shape."""
     kinds = ["keep", "drop", "stairs"]
+    if piece["triangles_count"] >= 12:
+        kinds += ["organic"]
     if piece["fits"]["rect"]:
         kinds += ["block", "body", "roof"]
     elif piece["fits"].get("shell"):
@@ -308,6 +315,8 @@ def guess(piece: dict[str, Any], size_mm: float) -> tuple[str, dict[str, Any]]:
     sx, sy, sz = piece["size"]
     wide = max(sx, sy, 1e-9)
     fits = piece["fits"]
+    if piece.get("figure"):
+        return "organic", {}
     polar = piece.get("polar")
     if polar and fits["round"] and polar["sides"] <= 8 and (len(prof) <= 3 or polar["hole"] > 0) and not (polar["sides"] == 4 and fits["rect"]):   # a prism or a ring, corners and all
         return "lathe", {"sides": polar["sides"]}
@@ -342,6 +351,7 @@ _NUM = {"roof": {"tiles": (4, 60, int), "rows": (3, 12, int), "concave": (1.0, 2
                  "panel_depth": (0.0, 5.0, float)},
         "block": {"bevel": (0.0, 2.0, float), "emboss": (0, 1, int)}, "lathe": {"segments": (8, 64, int), "flutes": (0, 32, int), "sides": (0, 12, int), "bevel": (0.0, 1.0, float)},
         "tiled": {"tiles": (4, 60, int), "tile_radius": (0.0, 5.0, float), "bevel": (0.0, 1.0, float), "emboss": (0, 1, int)},
+        "organic": {"level": (1, 4, int), "emboss": (0, 1, int)},
         "sweep": {"smooth": (0, 8, int), "bevel": (0.0, 1.0, float), "emboss": (0, 1, int)},
         "stairs": {"steps": (2, 40, int), "bevel": (0.0, 1.0, float)}, "keep": {"bevel": (0.0, 1.0, float), "emboss": (0, 1, int)}, "drop": {}}
 

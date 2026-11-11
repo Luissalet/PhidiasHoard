@@ -15,7 +15,9 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
   the game left out the sides nobody sees; a roof with more to it than four slopes (a platform, a hatch) keeps its
   shape and gets the tiles laid down its slopes. What the textures draw (panels, frames, bands, joints) is modelled
   into the faces: each quad becomes a grid that follows the texels where the height changes, raised and sunk in
-  steps. A piece is only offered the builders its shape really fits, so sloping ground is never turned into a
+  steps; on triangles and on textures that sit turned on the face it goes in on a fine grid of quads instead
+  (crowns, brackets, ornaments). Figures the game made of flat facets (statues, animals) are rounded into a soft
+  surface of small quads that carries what their texture draws: feathers, eyes, folds. A piece is only offered the builders its shape really fits, so sloping ground is never turned into a
   block or a roof. The family's vision model can choose what each type is and its parameters, look at the result
   next to the original and correct it ("Remodelar con IA"). Pieces of the same shape are one type: you choose what each type
   is and its parameters (tiles per side, bays, bars, segments). The result is a `.blend` with one object per piece

@@ -520,6 +520,90 @@ def _cuts(lv, along_u, a, b, lo, hi):
     return sorted(out), texel
 
 
+def _height(mat, uv):
+    """A texture's height (in steps) at a point of it, blended between texels."""
+    lv = TEXTURES[mat]["levels"]
+    h, w = len(lv), len(lv[0])
+    x, y = uv.x * w - 0.5, (1 - uv.y) * h - 0.5
+    x0, y0 = math.floor(x), math.floor(y)
+    tx, ty = x - x0, y - y0
+    a, b = lv[y0 % h][x0 % w], lv[y0 % h][(x0 + 1) % w]
+    c, d = lv[(y0 + 1) % h][x0 % w], lv[(y0 + 1) % h][(x0 + 1) % w]
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+
+
+def _source(piece):
+    """The piece as the game has it: welded, with its UVs and a material index per face."""
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("uv")
+    verts = [bm.verts.new(p) for p in piece["points"]]
+    names = sorted(set(piece.get("triangle_materials") or []))
+    uvs = piece.get("uvs") or []
+    for k, tri in enumerate(piece["triangles"]):
+        try:
+            face = bm.faces.new([verts[i] for i in tri])
+        except ValueError:
+            continue
+        if k < len(uvs):
+            face.material_index = names.index(piece["triangle_materials"][k])
+            for loop, c in zip(face.loops, uvs[k]):
+                loop[uv_layer].uv = c
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bmesh.ops.join_triangles(bm, faces=bm.faces, angle_face_threshold=math.radians(2), angle_shape_threshold=math.radians(60))
+    return bm, uv_layer, names
+
+
+def build_subdivided(piece, name, kind, rounded):
+    """A piece whose faces are divided into small quads (every triangle into quads too) and then carry what the
+    texture draws, blended between texels. ``rounded`` also smooths the shape: a figure the game made of flat facets
+    comes out as a soft surface."""
+    bm, _, names = _source(piece)
+    edges = [e.calc_length() for e in bm.edges]
+    faces = len(bm.faces)
+    if not edges or not faces:
+        bm.free()
+        return
+    drawn = [m for m in names if m in TEXTURES] if piece["params"].get("emboss", 1) else []
+    texel = MIN_TEXEL
+    mean = sum(edges) / len(edges)
+    level = int(piece["params"].get("level", 0)) or max(2 if rounded else 1, min(4, math.ceil(math.log2(max(mean / (1.6 * texel), 1.0)))))
+    while level > 1 and faces * 4 ** level > 60000:
+        level -= 1
+    mesh = bpy.data.meshes.new(name + " base")
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name + " base", mesh)
+    scene.collection.objects.link(obj)
+    steps = [("SIMPLE", 1), ("CATMULL_CLARK", level - 1)] if rounded and level >= 2 else [("CATMULL_CLARK" if rounded else "SIMPLE", level)]
+    for how, n in steps:                                   # a plain division first keeps beaks, tails and limbs their length
+        mod = obj.modifiers.new("Subdivision", "SUBSURF")
+        mod.subdivision_type = how
+        mod.levels = mod.render_levels = n
+    fine = bpy.data.meshes.new_from_object(obj.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+    bpy.data.objects.remove(obj)
+    bpy.data.meshes.remove(mesh)
+    bm = bmesh.new()
+    bm.from_mesh(fine)
+    bpy.data.meshes.remove(fine)
+    uv_layer = bm.loops.layers.uv.active
+    if drawn and uv_layer is not None:
+        bm.normal_update()
+        moves = []
+        reach = 0.03 * max(piece["size"])                  # a small figure takes a shallow drawing
+        for v in bm.verts:
+            hs = [(_height(names[l.face.material_index], l[uv_layer].uv) * min(TEXTURES[names[l.face.material_index]]["depth"], reach) / 3.0)
+                  for l in v.link_loops if l.face.material_index < len(names) and names[l.face.material_index] in TEXTURES]
+            if hs:
+                moves.append((v, v.normal * (sum(hs) / len(hs))))
+        for v, d in moves:
+            v.co += d
+    finish(bm, name, kind, smooth=rounded)
+
+
+def build_organic(piece, name):
+    build_subdivided(piece, name, "figuras", True)
+
+
 def emboss(bm, uv_layer, piece, skip=()):
     """What the textures draw, modelled into the faces: every quad whose texture lies square on it becomes a grid of
     quads that follows the texels where the height changes, raised and sunk in steps with a short slope between."""
@@ -593,26 +677,33 @@ def emboss(bm, uv_layer, piece, skip=()):
     return done
 
 
+def _square_share(bm, uv_layer, piece, skip=()):
+    """How much of the drawn surface of a piece lies on quads the texture sits square on (the ones emboss can cut)."""
+    names = sorted(set(piece.get("triangle_materials") or []))
+    square = total = 0.0
+    for face in bm.faces:
+        if face.material_index >= len(names) or names[face.material_index] in skip or names[face.material_index] not in TEXTURES:
+            continue
+        area = face.calc_area()
+        total += area
+        if len(face.verts) == 4:
+            uv = [l[uv_layer].uv for l in face.loops]
+            ea, eb = uv[1] - uv[0], uv[3] - uv[0]
+            scale = max(ea.length, eb.length, 1e-9)
+            if (uv[0] + ea + eb - uv[2]).length <= 0.02 * scale and ((abs(ea.y) < 0.02 * scale and abs(eb.x) < 0.02 * scale) or (abs(ea.x) < 0.02 * scale and abs(eb.y) < 0.02 * scale)):
+                square += area
+    return square / total if total > 0 else 1.0
+
+
 def build_keep(piece, name, kind="originales", skip=()):
     """The original piece, cleaned: welded, triangles paired back into quads, what its textures draw modelled into
     its faces, sharp edges bevelled."""
-    bm = bmesh.new()
-    uv_layer = bm.loops.layers.uv.new("uv")
-    verts = [bm.verts.new(p) for p in piece["points"]]
-    names = sorted(set(piece.get("triangle_materials") or []))
+    bm, uv_layer, names = _source(piece)
     uvs = piece.get("uvs") or []
-    for k, tri in enumerate(piece["triangles"]):
-        try:
-            face = bm.faces.new([verts[i] for i in tri])
-        except ValueError:
-            continue
-        if k < len(uvs):
-            face.material_index = names.index(piece["triangle_materials"][k])
-            for loop, c in zip(face.loops, uvs[k]):
-                loop[uv_layer].uv = c
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
-    bmesh.ops.join_triangles(bm, faces=bm.faces, angle_face_threshold=math.radians(2), angle_shape_threshold=math.radians(60))
     weighted = False
+    if uvs and piece["params"].get("emboss", 1) and _drawn(piece) and not skip and len(bm.faces) <= 600 and _square_share(bm, uv_layer, piece) < 0.5:
+        bm.free()                                          # triangles and turned mappings: the drawing goes in on a fine grid instead
+        return build_subdivided(piece, name, kind, False)
     if uvs and piece["params"].get("emboss", 1) and _drawn(piece):
         bm.normal_update()
         weight = bm.edges.layers.float.new("bevel_weight_edge")
@@ -708,7 +799,7 @@ def build_tiled(piece, name):
         bm.free()
 
 
-BUILDERS = {"tiled": build_tiled, "block": build_block, "lathe": build_lathe, "sweep": build_sweep, "roof": build_roof, "body": build_body, "stairs": build_stairs, "keep": build_keep}
+BUILDERS = {"organic": build_organic, "tiled": build_tiled, "block": build_block, "lathe": build_lathe, "sweep": build_sweep, "roof": build_roof, "body": build_body, "stairs": build_stairs, "keep": build_keep}
 for piece in PLAN["pieces"]:
     kind = piece.get("kind", "keep")
     if kind == "drop":
