@@ -1,17 +1,18 @@
 # Phidias's Hoard
 
+Estudio de esculpido que convierte escenarios low-poly de juegos en modelos de alta resolución para imprimir en 3D. [English](README.md)
+
+![Phidias's Hoard](app-icon.png)
+
+## Qué es
+
 Estudio de esculpido de la familia Hoard. Abre escenarios low-poly sacados de juegos y los convierte en un modelo de
 alta resolución para imprimir en 3D: el relieve que el juego solo dibuja en sus texturas (grietas, juntas entre
 bloques, escalones, las líneas de una columna, tejas) se talla en la malla, al tamaño al que vas a imprimir y en
 milímetros.
 
-- **Skills para los agentes que se conectan**: Phidias coge de la biblioteca de skills del espacio de trabajo de la
-  familia los procedimientos que necesita su trabajo (cómo remodelar escenarios de juegos con estas herramientas, cómo
-  producir assets en Blender, cómo preparar 3D para la web, cómo verificar un resultado) y se los da a cada agente que
-  se conecta: aparecen en lo que el agente lee al conectarse, se leen con `skills_list` y `skill_read`, y se ofrecen
-  como prompts. Son copias guardadas con la app, que se renuevan cuando la biblioteca mejora una. El botón «Skills»
-  abre la página donde se eligen: lo que lleva la app, la biblioteca entera con buscador, añadir, quitar, leer y un
-  formulario para escribir una skill nueva.
+## Qué hace
+
 - **Remodelado** (la forma principal de trabajar): el modelo del juego se despieza y cada pieza se construye de nuevo
   en Blender con operaciones de modelado, en quads limpios, usando el original solo como referencia de medidas y
   posiciones. Los tejados a cuatro aguas llevan tejas de medio punto de verdad, limatesas, faldón cóncavo y aleros
@@ -82,9 +83,20 @@ milímetros.
 - **Archivos de impresión**: exporta el esculpido a 3MF con sus materiales. Parte un sólido cerrado por un plano
   X, Y o Z y añade encajes con la holgura que indiques. Descarga los dos STL o un 3MF con las piezas separadas.
 
-Forma parte de la familia Hoard (ver `faustus-plugin.json`): las mismas herramientas que usan los botones están al
-alcance de los asistentes por MCP (`mcp_server.py`), con imágenes de los materiales y de los modelos para que puedan
-juzgar el relieve que piden.
+## Conexión con Faustus y Hoard Hub
+
+`faustus-plugin.json` (id `phidias`) registra la app como plugin de Faustus: Hoard Hub la arranca bajo demanda en el puerto 5251 y comprueba `/api/health`. Las mismas operaciones que usan los botones están al alcance de los asistentes por MCP (`mcp_server.py`, stdio), con imágenes de los materiales y de los modelos para que puedan juzgar el relieve que piden. Herramientas por grupo:
+
+| Grupo | Herramientas |
+| --- | --- |
+| Biblioteca y proyectos | `status`, `library_scan`, `project_list`, `project_create`, `project_get`, `project_set`, `project_delete` |
+| Materiales | `material_look`, `material_set` |
+| Esculpido y remodelado | `sculpt_start`, `remodel_plan`, `remodel_set`, `remodel_start`, `direct_start` |
+| Sólido e impresión | `close_start`, `split_start`, `result_export` |
+| Trabajos y vistas | `job_status`, `job_cancel`, `model_look` |
+| Ajustes | `settings_get`, `settings_set` |
+
+Phidias también coge de la biblioteca de skills de la familia los procedimientos que necesita su trabajo (remodelar escenarios de juegos, producir assets en Blender, preparar 3D para la web, verificar un resultado) y se los da a los agentes que se conectan: aparecen en lo que el agente lee al conectarse, se leen con `skills_list` y `skill_read`, y se ofrecen como prompts. Son copias guardadas con la app. El botón **Skills** abre la página donde se eligen, se busca en la biblioteca, se añaden o quitan y se escribe una nueva.
 
 ## Arrancar
 
@@ -109,3 +121,19 @@ La inferencia se ejecuta en el PC por CPU.
   normales da menos que las texturas originales del juego.
 - El sólido cerrado pierde el detalle más fino que su tamaño de vóxel.
 - Las hojas y los árboles en plano siguen siendo láminas con grosor: no se convierten en volúmenes.
+
+## Estructura del proyecto
+
+| Ruta | Contenido |
+| --- | --- |
+| `phidias_hoard/engine/` | Relieve, esculpido, refinado, bloque de suelo, sólido cerrado, corte y exportación STL/3MF |
+| `phidias_hoard/remodel/` | Detección de piezas y reconstrucción en quads con Blender |
+| `phidias_hoard/api/`, `static/` | API web, herramientas de agente e interfaz |
+| `phidias_hoard/hoard_link/` | Código compartido de la familia Hoard |
+| `mcp_server.py`, `faustus-plugin.json` | Puente MCP y manifiesto del plugin |
+| `tests/` | Pruebas |
+| `data/` | Proyectos, resultados y token de MCP |
+
+## Licencia
+
+MIT, ver `LICENSE`. Los avisos de terceros están en `THIRD_PARTY_NOTICES.md`.

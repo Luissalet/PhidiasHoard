@@ -1,15 +1,17 @@
 # Phidias's Hoard
 
+Sculpting studio that turns low-poly game scenery into high-resolution models for 3D printing. [Español](README.es.md)
+
+![Phidias's Hoard](app-icon.png)
+
+## What it is
+
 Sculpting studio of the Hoard family. It opens low-poly scenery taken from games and turns it into a high-resolution
 model for 3D printing: the relief that the game only draws in its textures (cracks, joints between blocks, steps,
 the lines of a column, roof tiles) is carved into the mesh, at the size you are going to print and in millimetres.
 
-- **Skills for the agents that connect**: Phidias takes from the skill library of the family's workspace the
-  procedures its work needs (how to remodel game scenery with these tools, how to produce Blender assets, how to prepare
-  3D for the web, how to verify a result) and hands them to every agent that connects: they are named in what the agent
-  reads on connecting, read with `skills_list` and `skill_read`, and offered as prompts. They are copies kept with the
-  app, refreshed when the library improves one. The "Skills" button opens the page where you choose them: what the
-  app carries, the whole library with search, add, take away, read, and a form to write a new skill.
+## What it does
+
 - **Remodelling** (the main way of working): the game model is taken apart into its pieces and each one is built
   again in Blender with modelling operations, in clean quads, using the original only as the reference for sizes and
   positions. Hipped roofs get real half-round tiles, hip ridges, a concave slope and upturned eaves; storeys get
@@ -74,8 +76,20 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 - **Print files**: export a 3MF with the sculpt's material assignments. Split a watertight solid on an X, Y or Z
   plane, optionally with mating pegs. Download both STL parts or a 3MF with the two parts laid out separately.
 
-Part of the Hoard family (see `faustus-plugin.json`): the same tools the buttons use are available to assistants
-through MCP (`mcp_server.py`), with pictures of materials and models so they can judge the relief they ask for.
+## Connection with Faustus and Hoard Hub
+
+`faustus-plugin.json` (id `phidias`) registers the app as a Faustus plugin: Hoard Hub starts it on demand on port 5251 and checks `/api/health`. The same operations the buttons use are available to assistants through MCP (`mcp_server.py`, stdio), with pictures of materials and models so they can judge the relief they ask for. Tools by group:
+
+| Group | Tools |
+| --- | --- |
+| Library and projects | `status`, `library_scan`, `project_list`, `project_create`, `project_get`, `project_set`, `project_delete` |
+| Materials | `material_look`, `material_set` |
+| Sculpting and remodelling | `sculpt_start`, `remodel_plan`, `remodel_set`, `remodel_start`, `direct_start` |
+| Solid and print files | `close_start`, `split_start`, `result_export` |
+| Jobs and views | `job_status`, `job_cancel`, `model_look` |
+| Settings | `settings_get`, `settings_set` |
+
+Phidias also takes from the family's skill library the procedures its work needs (remodelling game scenery, Blender asset production, 3D for the web, verifying a result) and hands them to connecting agents: they are named in what the agent reads on connecting, read with `skills_list` and `skill_read`, and offered as prompts. They are copies kept with the app. The **Skills** button opens the page where you choose them, search the library, add or remove skills, and write a new one.
 
 ## Run
 
@@ -100,3 +114,19 @@ or point Settings at an existing Python with Torch and Transformers. Inference r
   gives less than the game's original textures would.
 - The watertight solid loses detail finer than its voxel size.
 - Leaves and tree cards stay flat sheets with thickness: they are not turned into volumes.
+
+## Project layout
+
+| Path | Contents |
+| --- | --- |
+| `phidias_hoard/engine/` | Relief, sculpting, refinement, ground block, watertight solid, split and STL/3MF export |
+| `phidias_hoard/remodel/` | Piece detection and Blender rebuild into quads |
+| `phidias_hoard/api/`, `static/` | Web API, agent tools and the interface |
+| `phidias_hoard/hoard_link/` | Shared Hoard family code |
+| `mcp_server.py`, `faustus-plugin.json` | MCP bridge and plugin manifest |
+| `tests/` | Test suite |
+| `data/` | Projects, results and the MCP token |
+
+## Licence
+
+MIT, see `LICENSE`. Third-party notices are in `THIRD_PARTY_NOTICES.md`.
