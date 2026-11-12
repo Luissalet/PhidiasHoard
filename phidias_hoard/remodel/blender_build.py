@@ -608,7 +608,7 @@ def build_subdivided(piece, name, kind, rounded, cap=False):
     texture draws, blended between texels. ``rounded`` also smooths the shape: a figure the game made of flat facets
     comes out as a soft surface."""
     bm, _, names = _source(piece)
-    completed = _complete_exterior(bm, len(names)) if cap else 0
+    completed = _complete_exterior(bm, len(names)) if cap and not piece["params"].get("thickness_mm", 0) else 0
     edges = [e.calc_length() for e in bm.edges]
     faces = len(bm.faces)
     if not edges or not faces:
@@ -648,12 +648,60 @@ def build_subdivided(piece, name, kind, rounded, cap=False):
                 moves.append((v, v.normal * (sum(hs) / len(hs))))
         for v, d in moves:
             v.co += d
-    finish(bm, name, kind, smooth=rounded)
+    thickened = _thicken(bm, piece)
+    # Coincident points at a folded tip can belong to different sides of the new skin. Re-welding them would
+    # create a branching edge again; the source and subdivision are already welded where they should be.
+    finish(bm, name, kind, smooth=rounded, weld=not thickened["thickness_mm"])
     STATS[-1]["completed_sides"] = completed
+    STATS[-1].update(thickened)
 
 
 def build_organic(piece, name):
     build_subdivided(piece, name, "figuras", True)
+
+
+def build_rock(piece, name):
+    # SIMPLE turns even triangular facets into quads without shrinking ridges or filling terrain borders.
+    build_subdivided(piece, name, "roca", False)
+
+
+def _thicken(bm, piece):
+    """Give an explicitly selected open surface a centred skin and quad rims; closed pieces stay as they are.
+
+    This is a shell, not a boolean union: it must not voxel-remesh away the wing tips or the rock's ridges.
+    """
+    thickness = float(piece["params"].get("thickness_mm", 0.0))
+    boundary = sum(e.is_boundary for e in bm.edges)
+    report = {"thickness_mm": 0.0, "boundary_edges_before": boundary, "boundary_edges_after": boundary}
+    if thickness <= 0 or not boundary:
+        return report
+    # Some game ornaments put three surface fans on one edge. Separate those fans before making their rims;
+    # they remain separate shells, rather than giving Solidify an ambiguous inside/outside at the junction.
+    branches = [e for e in bm.edges if len(e.link_faces) > 2]
+    if branches:
+        bmesh.ops.split_edges(bm, edges=branches)
+    report["split_branch_edges"] = len(branches)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    mesh = bpy.data.meshes.new("shell source")
+    bm.to_mesh(mesh)
+    obj = bpy.data.objects.new("shell source", mesh)
+    scene.collection.objects.link(obj)
+    mod = obj.modifiers.new("Sheet thickness", "SOLIDIFY")
+    mod.thickness = thickness
+    mod.offset = 0.0
+    # A mitered/even offset explodes at the near-180-degree folds in game wings. Unit-normal offsets are bounded
+    # to half the requested thickness on each side, even at those folded tips.
+    mod.use_even_offset = False
+    mod.use_quality_normals = True
+    fine = bpy.data.meshes.new_from_object(obj.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+    bm.clear()
+    bm.from_mesh(fine)
+    bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.data.meshes.remove(mesh)
+    bpy.data.meshes.remove(fine)
+    report.update(thickness_mm=thickness, boundary_edges_after=sum(e.is_boundary for e in bm.edges),
+                  branch_edges_after=sum(len(e.link_faces) > 2 for e in bm.edges))
+    return report
 
 
 def emboss(bm, uv_layer, piece, skip=()):
@@ -757,7 +805,8 @@ def build_keep(piece, name, kind="originales", skip=()):
     if uvs and piece["params"].get("emboss", 1) and _drawn(piece) and not skip and len(bm.faces) <= 600 and _square_share(bm, uv_layer, piece) < 0.5:
         bm.free()                                          # triangles and turned mappings: the drawing goes in on a fine grid instead
         return build_subdivided(piece, name, kind, False, cap=cap)
-    completed = _complete_exterior(bm, len(names)) if cap else 0
+    # Explicit thickness must operate on the open surface, before any automatic exterior cap.
+    completed = _complete_exterior(bm, len(names)) if cap and not piece["params"].get("thickness_mm", 0) else 0
     if uvs and piece["params"].get("emboss", 1) and _drawn(piece):
         bm.normal_update()
         weight = bm.edges.layers.float.new("bevel_weight_edge")
@@ -765,8 +814,11 @@ def build_keep(piece, name, kind="originales", skip=()):
             if len(e.link_faces) == 2 and e.calc_face_angle(0.0) > math.radians(35):
                 e[weight] = 1.0
         weighted = emboss(bm, uv_layer, piece, skip) > 0
-    finish(bm, name, kind, bevel=float(piece["params"].get("bevel", 0.15)), weighted=weighted)
+    thickened = _thicken(bm, piece)
+    finish(bm, name, kind, bevel=float(piece["params"].get("bevel", 0.15)), weighted=weighted,
+           weld=not thickened["thickness_mm"])
     STATS[-1]["completed_sides"] = completed
+    STATS[-1].update(thickened)
 
 
 # ------------------------------------------------------------------------------------------------------------ tiled
@@ -854,7 +906,7 @@ def build_tiled(piece, name):
         bm.free()
 
 
-BUILDERS = {"organic": build_organic, "tiled": build_tiled, "block": build_block, "lathe": build_lathe, "sweep": build_sweep, "roof": build_roof, "body": build_body, "stairs": build_stairs, "keep": build_keep}
+BUILDERS = {"organic": build_organic, "rock": build_rock, "tiled": build_tiled, "block": build_block, "lathe": build_lathe, "sweep": build_sweep, "roof": build_roof, "body": build_body, "stairs": build_stairs, "keep": build_keep}
 for piece in PLAN["pieces"]:
     kind = piece.get("kind", "keep")
     if kind == "drop":

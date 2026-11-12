@@ -91,6 +91,13 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 
 Phidias also takes from the family's skill library the procedures its work needs (remodelling game scenery, Blender asset production, 3D for the web, verifying a result) and hands them to connecting agents: they are named in what the agent reads on connecting, read with `skills_list` and `skill_read`, and offered as prompts. They are copies kept with the app. The **Skills** button opens the page where you choose them, search the library, add or remove skills, and write a new one.
 
+Remodel also offers `rock`: quad subdivision preserving the original hard facets and open terrain borders
+(`level` 1-4; `emboss: 0` disables painted relief). Explicit rock/stone/iwa/terrain material words keep irregular
+rocks out of figure smoothing. Saved choices take precedence. In the studio piece controls or `remodel_set`,
+`organic`, `rock` and `keep` accept `thickness_mm` (0-5 mm, default 0): centred shells with quad rims for open pieces.
+Folded tips use bounded normal offsets, branching fans get separate rims, and closed pieces are unchanged.
+This retains the source shape; it does not generate new edge flow, fuse parts or resolve shell intersections.
+
 ## Run
 
 ```

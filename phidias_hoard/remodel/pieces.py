@@ -4,6 +4,7 @@ same shape are told to be instances of one type. A first guess says what each pi
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 import numpy as np
@@ -13,7 +14,7 @@ from scipy.sparse.csgraph import connected_components
 from ..engine.meshio import Scene
 from . import texture_counts
 
-KINDS = ("roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "organic", "keep", "drop")
+KINDS = ("roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "organic", "rock", "keep", "drop")
 
 
 def split(scene: Scene, scale: float, dropped: set[str]) -> list[dict[str, Any]]:
@@ -307,7 +308,7 @@ def _tightest_yaw(xy: np.ndarray) -> float:
 
 def allowed(piece: dict[str, Any]) -> list[str]:
     """What a piece can be rebuilt as: a builder is offered only when the piece really has that builder's shape."""
-    kinds = ["keep", "drop", "stairs"]
+    kinds = ["keep", "drop", "stairs", "rock"]
     if piece["triangles_count"] >= 12:
         kinds += ["organic"]
     if piece["fits"]["rect"]:
@@ -343,6 +344,13 @@ def _guess_shape(piece: dict[str, Any], size_mm: float) -> tuple[str, dict[str, 
     sx, sy, sz = piece["size"]
     wide = max(sx, sy, 1e-9)
     fits = piece["fits"]
+    # A rock with its own texture used to satisfy the figure heuristic and get rounded like a statue.
+    # Use explicit material words only; saved choices still take precedence in remodel_plan.
+    if not (fits["rect"] or fits["round"] or fits.get("sweep")) and any(
+        re.search(r"(?:^|[_.\s-])(rock|stone|iwa|terrain)(?:$|[_.\s-])", name, re.I)
+        for name in piece.get("materials", {})
+    ):
+        return "rock", {}
     if piece.get("figure"):
         return "organic", {}
     polar = piece.get("polar")
@@ -379,9 +387,10 @@ _NUM = {"roof": {"tiles": (4, 60, int), "rows": (3, 12, int), "concave": (1.0, 2
                  "panel_depth": (0.0, 5.0, float)},
         "block": {"bevel": (0.0, 2.0, float), "emboss": (0, 1, int)}, "lathe": {"segments": (8, 64, int), "flutes": (0, 32, int), "sides": (0, 12, int), "bevel": (0.0, 1.0, float)},
         "tiled": {"tiles": (4, 60, int), "tile_radius": (0.0, 5.0, float), "bevel": (0.0, 1.0, float), "emboss": (0, 1, int), "cap": (0, 1, int)},
-        "organic": {"level": (1, 4, int), "emboss": (0, 1, int)},
+        "organic": {"level": (1, 4, int), "emboss": (0, 1, int), "thickness_mm": (0.0, 5.0, float)},
+        "rock": {"level": (1, 4, int), "emboss": (0, 1, int), "thickness_mm": (0.0, 5.0, float)},
         "sweep": {"smooth": (0, 8, int), "bevel": (0.0, 1.0, float), "emboss": (0, 1, int)},
-        "stairs": {"steps": (2, 40, int), "bevel": (0.0, 1.0, float)}, "keep": {"bevel": (0.0, 1.0, float), "emboss": (0, 1, int), "cap": (0, 1, int)}, "drop": {}}
+        "stairs": {"steps": (2, 40, int), "bevel": (0.0, 1.0, float)}, "keep": {"bevel": (0.0, 1.0, float), "emboss": (0, 1, int), "cap": (0, 1, int), "thickness_mm": (0.0, 5.0, float)}, "drop": {}}
 
 
 def clean_params(kind: str, params: Any) -> dict[str, Any]:

@@ -270,7 +270,9 @@ Builders (a type can only use the ones listed as allowed for it):
 - lathe: a turned piece (spire, finial, round column, urn) revolved from the piece's own profile. params: segments (16-48), flutes (0, or the number of vertical channels of a fluted column shaft: 8-24), sides (0 round; 3-12 a prism with that many flat sides, like a hexagonal ring or an octagonal post). A ring keeps its hole.
 - stairs: real steps inside the piece's box. params: steps, axis ("x" or "y": the direction they climb along), flip (true if they climb the other way).
 - organic: a figure the game made of flat facets (a statue, an animal, a carved ornament), rounded into a soft surface of small quads that carries what its texture draws (feathers, eyes, folds). params: level (subdivisions, 1-4). Not for crystals, rock or anything meant to have hard edges.
-- keep: the original piece as it is, cleaned into quads (rock, terrain, anything irregular with hard edges).
+- rock: rock or terrain rebuilt as subdivided quads, retaining every original facet and hard ridge without rounding or capping terrain borders. params: level (1-4), emboss (0 to disable painted relief).
+- keep: the original piece as it is, cleaned into quads.
+For organic, rock and keep, thickness_mm (0-5, default 0) adds a centred shell and quad rims to open pieces. Only when the owner asks for thickness. It does not fuse parts or guarantee no intersections.
 What the textures draw (panels, frames, bands, joints) is modelled into the faces of keep, tiled, sweep and plain block pieces in steps; "emboss": 0 in params turns that off for a type whose texture is only shading or noise.
 - drop: remove (shadow planes, light effects, sky).
 When the original roof has its own curved eaves they are measured and used: give concave or corner_lift only to override them.

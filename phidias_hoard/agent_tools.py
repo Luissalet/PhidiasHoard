@@ -101,12 +101,14 @@ class DirectArgs(ProjectId):
 
 
 class PieceChange(BaseModel):
-    kind: Optional[Literal["roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "organic", "keep", "drop"]] = None
+    kind: Optional[Literal["roof", "tiled", "body", "block", "lathe", "sweep", "stairs", "organic", "rock", "keep", "drop"]] = None
     params: Optional[dict[str, Any]] = Field(None, description="roof: tiles (ribs per side), rows, concave (1-2), corner_lift (0-0.8), tile_radius, bevel. "
                                              "lathe also flutes (channels of a fluted shaft). body: bays_x, bays_y, zones (per band bottom to top: panel, lattice or plain), bars, door_bay (bay of the front, or null), "
                                              "post_section (square, round), post, beam, panel_depth. block: bevel. lathe: segments, sides (flat sides of a prism, 0 round), bevel. tiled: tiles. sweep: smooth. stairs: steps, axis (x, y), flip. "
                                              "keep, tiled, sweep, block: emboss (0 leaves out what the textures draw). "
-                                             "keep and tiled: cap (0 keeps the original borders). Sizes in mm.")
+                                             "keep and tiled: cap (0 keeps the original borders). organic and rock: level (1-4), emboss (0/1). "
+                                             "organic, rock and keep: thickness_mm (0-5, default 0; centred shell with quad rims on open pieces; closed pieces unchanged, no union). "
+                                             "rock preserves the original facets and terrain borders in subdivided quads. Sizes in mm.")
     what: Optional[str] = Field(None, max_length=160)
 
 
@@ -237,6 +239,7 @@ TOOLS: list[Tool] = [
     Tool("remodel_plan", _d("The model taken apart into its pieces: each type of piece with how many there are, its size, its materials and what it will be rebuilt as.",
                             "Kinds: roof (hipped roof with real tiles, hip ridges and upturned eaves), body (a storey: posts, beams, recessed panels, lattices, a door), "
                             "block (bevelled slab or plinth following the piece's profile), lathe (turned piece from its profile: spires, columns), stairs, "
+                            "organic (rounded figure), rock (quad subdivision preserving hard facets and terrain borders), "
                             "keep (the original piece cleaned into quads), drop.", "piezas, despiece"), ProjectId, ann(read_only=True), lambda s, a: s.remodel_plan(a.project_id)),
     Tool("remodel_set", _d("Choose what a type of piece is rebuilt as and with which parameters.", synonyms="cambiar pieza, tejas, vanos"),
          RemodelSetArgs, ann(draft_safe=True, idempotent=True), lambda s, a: s.remodel_set(a.project_id, {k: v.model_dump(exclude_none=True) for k, v in a.types.items()})),

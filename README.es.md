@@ -98,6 +98,14 @@ milímetros.
 
 Phidias también coge de la biblioteca de skills de la familia los procedimientos que necesita su trabajo (remodelar escenarios de juegos, producir assets en Blender, preparar 3D para la web, verificar un resultado) y se los da a los agentes que se conectan: aparecen en lo que el agente lee al conectarse, se leen con `skills_list` y `skill_read`, y se ofrecen como prompts. Son copias guardadas con la app. El botón **Skills** abre la página donde se eligen, se busca en la biblioteca, se añaden o quitan y se escribe una nueva.
 
+El remodelado también ofrece `rock`: subdivisión en quads que conserva las facetas duras y los bordes abiertos
+del terreno (`level` 1-4; `emboss: 0` quita el relieve pintado). Los nombres de material rock/stone/iwa/terrain
+evitan suavizar la roca irregular como una figura; las decisiones guardadas tienen prioridad. En los controles
+de pieza del estudio o `remodel_set`, `organic`, `rock` y `keep` admiten `thickness_mm` (0-5 mm, 0 por defecto):
+cáscaras centradas con cantos en quads para las piezas abiertas. Los desplazamientos se limitan en las puntas
+plegadas; las ramas reciben cantos separados y las piezas cerradas conservan su geometría. Se conserva la forma
+original; no crea un flujo de aristas nuevo, no funde las piezas ni resuelve las intersecciones entre cáscaras.
+
 ## Arrancar
 
 ```

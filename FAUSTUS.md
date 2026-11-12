@@ -45,6 +45,14 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   triangle ends as quads, vertices moved along their normal by the texture's height blended between texels (depth
   limited to 3 % of the piece's size). `keep` pieces whose drawn surface is mostly triangles or turned mappings use
   the same fine grid without the rounding.
+- Rock and terrain (`rock`): SIMPLE subdivision converts triangles into quads without rounding original ridges or
+  capping terrain borders. `level` 1-4, `emboss` 0 disables painted relief. Irregular pieces with explicit material
+  words rock/stone/iwa/terrain are proposed as rock before the figure heuristic; saved choices take precedence.
+- Wing/sheet thickness: `thickness_mm` 0-5 (default 0) for `organic`, `rock` and `keep`, in both the studio and
+  `remodel_set`. Open pieces receive a centred shell and quad rims after subdivision/relief; closed pieces stay
+  unchanged. Normal offsets stay bounded at folded tips; branching edges are split into separate surface fans.
+  Explicit thickness bypasses automatic exterior caps. `remodel.json` records thickness, boundary and remaining
+  branching-edge counts. Folded or intersecting source surfaces can still leave branching junctions.
 - Remodel direction (`remodel_start` with `direct`, `rounds`, `wish`): the vision model sees contact sheets of the
   piece types and their textures, chooses kind and params per type (only allowed kinds, params clamped), the remodel
   is built, it looks at it next to the original and may redo; its log is `project.remodel_director`. Output in `data/projects/<id>/remodel/`: `remodel.blend` (object per piece in
@@ -102,9 +110,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 
 ## Cannot
 
-- Remodel irregular rock and terrain: they stay as the cleaned original (`keep`). A figure is the game's own shape
-  rounded, not a new sculpt: parts the game made as flat sheets (wings) stay sheets, and nothing is added that the
-  shape or the texture does not hold.
+- Invent a new rock shape or an anatomical wing volume: `rock` subdivides the original facets, and thickness is a shell.
+  It does not fuse intersecting shells or disconnected parts, or guarantee a printable solid.
 - Model a texture into pieces rebuilt by `roof`, `body`, `lathe` and `stairs`. The steps come from how light each
   texel is, so painted shading reads as relief.
 - Infer missing faces with an irregular border or where the remaining geometry does not identify an exterior side.
