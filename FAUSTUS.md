@@ -139,3 +139,7 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - Data: `data/settings.json`, `data/projects/<id>/` (`project.json`, unpacked zip in `src/`, `sculpt.stl`,
   `closed.stl`, viewer meshes and pictures), `data/mcp-token`.
 - Tests: `tests/test_engine.py`, `tests/test_app.py`.
+
+## App Dock
+
+La guarda de peticiones es la común de la familia, con la regla del App Dock: una navegación enmarcada (`iframe`/`frame`, solo GET) desde un origen de Faustus conocido pasa; los orígenes ajenos y los marcos `embed`/`object` se rechazan.
