@@ -40,7 +40,7 @@ def status(request: Request):
 
 @router.get("/api/projects/{pid}/mesh/{which}.bin")
 def mesh(request: Request, pid: str, which: str):
-    if which not in ("before", "sculpt", "closed", "remodel", "remodel_edges"):
+    if which not in ("before", "sculpt", "closed", "remodel", "remodel_edges", "asset"):
         raise PhidiasError("not_found", "No existe esa malla.")
     path = services(request).store.dir(pid) / f"{which}.bin"
     if not path.is_file():
@@ -50,7 +50,7 @@ def mesh(request: Request, pid: str, which: str):
 
 @router.get("/api/projects/{pid}/picture/{which}.png")
 def picture(request: Request, pid: str, which: str):
-    if which not in ("before", "sculpt", "closed", "remodel"):
+    if which not in ("before", "sculpt", "closed", "remodel", "asset"):
         raise PhidiasError("not_found", "No existe esa imagen.")
     path = services(request).store.dir(pid) / f"{which}.png"
     if not path.is_file():
@@ -85,6 +85,15 @@ def download_remodel(request: Request, pid: str, ext: str):
     name = f"{project['name']} remodelado.{ext}"
     return FileResponse(path, media_type="application/octet-stream",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", **NO_CACHE})
+
+
+@router.get("/api/projects/{pid}/asset/{filename}")
+def asset_download(request: Request, pid: str, filename: str):
+    svc = services(request)
+    project = svc.store.get(pid)
+    path = svc.asset_file(pid, filename)
+    mime = {".glb": "model/gltf-binary", ".png": "image/png"}.get(path.suffix, "application/octet-stream")
+    return FileResponse(path, media_type=mime, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(project['name'] + ' ' + path.name)}", **NO_CACHE})
 
 
 @router.get("/api/projects/{pid}/download/{which}.stl")

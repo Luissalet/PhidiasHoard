@@ -100,7 +100,19 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   picture, measures, triangle counts and open-edge count.
 - Fuse the sculpt into one watertight solid with Blender (`close_start`): thickness for loose sheets, voxel remesh,
   sealed cavities filled by default (`fill_interior`, `cavities_filled` in the result) and open edges counted afterwards.
-- Look at any result (`model_look`): `before`, `sculpt` or `closed`; named views or any yaw/pitch; `region`
+- Game asset (`asset_start`, then `job_status`): from the closed solid (else the sculpt) Blender builds a light mesh,
+  unwraps it and bakes the maps. Retopology `method` `quadriflow` (clean quads, `target_faces` of them; a mesh over 400k
+  triangles is first collapsed to that for speed; when QuadriFlow fails the job falls back to `decimate` and says so in
+  `notes`) or `decimate` (edge collapse to triangles). UVs: Smart UV Project (`uv_angle`, default 66 degrees). Bake:
+  Cycles on the CPU, a tangent-space normal map and an ambient-occlusion map (`texture_px` 256-8192, `ao_samples`),
+  looking for the high mesh within `cage_pct` of the size above the low one. Output in `data/projects/<id>/asset/`:
+  `asset.glb` (glTF binary, both maps inside, occlusion read from the standard slot), `asset.fbx` (normal map embedded)
+  and `asset_normal.png`, `asset_ao.png` (`formats` picks glb/fbx). Longest side `size_m` metres (default 1), base at
+  z = 0, centred. The report has faces, quads, triangles, method, UV coverage, occlusion range and `size_m`. `model_look`
+  with `result: asset` draws it; `result_export` with `result: asset` copies the files into a `<name> asset` folder.
+  A new sculpt (or a new close, when the asset came from it) discards the asset. The studio has the Asset de juego view,
+  the Preparar asset form and the downloads.
+- Look at any result (`model_look`): `before`, `sculpt`, `closed` or `asset`; named views or any yaw/pitch; `region`
   `[x, y, z, radius]` in print millimetres; `compare` puts the original next to it.
 - Export (`result_export`): the STL into a `Phidias` folder next to the source model, or the folder given.
   `format: "3mf"` retains per-face materials in new sculpts. `split_start` cuts a watertight solid on a plane
@@ -125,6 +137,8 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
 - Direct a sculpt without a reachable vision model.
 - Add supports or slice. The 3MF assigns materials to faces. It cannot derive separate material volumes from a surface.
 - Undo a sculpt: each sculpt replaces the previous result of the project.
+- Bake colour: the game asset has a neutral grey material with a normal map and an occlusion map. The FBX carries only
+  the normal map (the occlusion map is a PNG beside it). It does not fix a mesh's open borders or make several materials.
 
 ## Where things are
 
@@ -132,13 +146,13 @@ App id `phidias`, service `phidias-hoard`, port 5251, MCP stdio bridge `mcp_serv
   step patterns, sampling, detail pyramids), `surface.py` (normal maps integrated on the mesh), `refine.py` (adaptive
   refinement), `sculpt.py` (the pipeline, ground block, sheets, plinth), `recipes.py` (guesses and the material
   picture), `patterns.py` (added detail), `preview.py` (pictures), `export.py` (STL, PLY, viewer buffers), `finish.py` + `blender_close.py` (the
-  watertight solid).
+  watertight solid), `asset.py` + `blender_asset.py` (the game asset).
 - `phidias_hoard/director.py` (the model's direction), `llm.py` (the vision model client).
 - `phidias_hoard/services.py` (library, projects, the job worker), `agent_tools.py` (the catalogue), `api/` (routes),
   `static/` (the studio), `store.py` (projects on disk).
 - Data: `data/settings.json`, `data/projects/<id>/` (`project.json`, unpacked zip in `src/`, `sculpt.stl`,
   `closed.stl`, viewer meshes and pictures), `data/mcp-token`.
-- Tests: `tests/test_engine.py`, `tests/test_app.py`.
+- Tests: `tests/test_engine.py`, `tests/test_app.py`, `tests/test_asset.py`.
 
 ## App Dock
 

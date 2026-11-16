@@ -19,7 +19,7 @@ from .services import PROJECT_SETTINGS, Services
 
 AGENT_INSTRUCTIONS = """Phidias's Hoard turns low-poly game scenery (OBJ, DAE, GLB/glTF, FBX, .blend or ZIP) into high-resolution models for 3D printing: the relief the textures only draw (cracks, joints between blocks, steps, the lines of a column, roof tiles) is sculpted into the mesh.
 Two ways of working. Remodel (the main one): remodel_plan takes the model apart into pieces and says what each will be rebuilt as; remodel_set corrects it; remodel_start rebuilds everything in Blender with modelling operations (real roof tiles, posts and panels, turned spires) in clean quads, as a .blend and an OBJ; model_look with result remodel shows it with its edges. Sculpt (displacement, dense triangles): the rest of the tools.
-Flow: library_scan lists the game models in the user's folders; project_create opens one (it reads the materials and guesses a recipe for each); material_look shows a material's texture, its normal map and the height map a recipe would carve; material_set changes recipes and depths; project_set changes the print size and detail; sculpt_start sculpts in the background (job_status); model_look shows the result, alone or next to the original, from any angle or zoomed on a region; close_start fuses it into one watertight solid with Blender; result_export writes the STL in millimetres.
+Flow: library_scan lists the game models in the user's folders; project_create opens one (it reads the materials and guesses a recipe for each); material_look shows a material's texture, its normal map and the height map a recipe would carve; material_set changes recipes and depths; project_set changes the print size and detail; sculpt_start sculpts in the background (job_status); model_look shows the result, alone or next to the original, from any angle or zoomed on a region; close_start fuses it into one watertight solid with Blender; result_export writes the STL in millimetres. asset_start turns the high-resolution result into a game asset (clean low-poly mesh by retopology, automatic UVs, normal and occlusion maps baked from the high mesh, glTF and FBX files) and result_export with result asset writes them.
 Recipes: normal (relief from the normal map, when there is one: the best source), relief (dark lines carved plus soft bumps from light and shade), lines (only what the texture draws darker: joints, cracks, flutes), steps (a ramp whose texture draws steps becomes real steps: flat treads and risers, as many as the texture draws or the number given in steps), flat (leave the surface as it is: water, glass, plain colours), drop (remove it: shadow planes, flames, glows, sky), auto. depth_mm is how deep the relief goes at print size (0.3-1.0 reads well on a 150 mm model). invert swaps carved and raised. enrich adds sculpted detail the texture does not hold (rock, cracks, cobble, bricks, planks, tiles, bark, ripples, flutes, carved_wood, scales, moss) at a real size in millimetres, on top of any recipe. direct_start hands the whole decision to the vision model, which sculpts, looks and redoes. cutout cuts away what the texture leaves see-through (fences, railings, leaves, tree cards) and gives the rest thickness (sheet_mm).
 The ground of the scene (faces looking up with nothing below) is closed into a solid block down to a base so it prints without supports under the terrain."""
 
@@ -133,7 +133,7 @@ class MaterialLookArgs(ProjectId):
 
 
 class LookArgs(ProjectId):
-    result: Literal["before", "sculpt", "closed", "remodel"] = Field("sculpt", description="before = the game model as it came; remodel = the model rebuilt in quads (drawn with its edges); sculpt = the displaced mesh; closed = the watertight solid.")
+    result: Literal["before", "sculpt", "closed", "remodel", "asset"] = Field("sculpt", description="before = the game model as it came; remodel = the model rebuilt in quads (drawn with its edges); sculpt = the displaced mesh; closed = the watertight solid; asset = the low-poly game asset.")
     wire: bool = Field(True, description="For remodel: draw the edges of the mesh, to judge the topology.")
     view: Literal[tuple(VIEWS)] = Field("iso")  # type: ignore[valid-type]
     yaw: Optional[float] = Field(None, ge=-360, le=360, description="Degrees around the model (0 = from the front, 90 = from the left side).")
@@ -144,7 +144,7 @@ class LookArgs(ProjectId):
 
 
 class ExportArgs(ProjectId):
-    result: Optional[Literal["remodel", "sculpt", "closed", "split"]] = Field(None, description="Default: remodel, then closed solid, then sculpt.")
+    result: Optional[Literal["remodel", "sculpt", "closed", "split", "asset"]] = Field(None, description="Default: remodel, then closed solid, then sculpt. asset writes a folder with the glTF/FBX models and the baked maps.")
     folder: str = Field("", max_length=1000, description="Where to write it; default: a Phidias folder next to the source model.")
     format: Literal["stl", "3mf"] = Field("stl", description="3MF keeps sculpt material assignments or all split parts.")
 
@@ -156,6 +156,18 @@ class SplitArgs(ProjectId):
     diameter_mm: float = Field(4, ge=1, le=20)
     depth_mm: float = Field(3, ge=0.5, le=15)
     clearance_mm: float = Field(0.25, ge=0, le=2, description="Radial and depth clearance between each peg and recess.")
+
+
+class AssetArgs(ProjectId):
+    source: Literal["auto", "closed", "sculpt"] = Field("auto", description="High-resolution mesh to bake from: the closed solid when there is one, else the sculpt.")
+    method: Literal["quadriflow", "decimate"] = Field("quadriflow", description="Retopology: quadriflow = clean quads (falls back to decimate when the mesh is open); decimate = edge collapse to triangles.")
+    target_faces: int = Field(5000, ge=100, le=500_000, description="Faces of the low-poly mesh (quads with quadriflow, triangles with decimate).")
+    texture_px: int = Field(1024, ge=256, le=8192, description="Side of the baked normal and occlusion maps in pixels.")
+    ao_samples: int = Field(32, ge=1, le=512, description="Samples of the occlusion bake (more = less noise).")
+    size_m: float = Field(1.0, gt=0, le=10_000, description="Longest side of the asset in metres; the base sits on the floor, centred.")
+    cage_pct: float = Field(3.0, gt=0, le=25, description="How far, as a percentage of the size, the bake looks for the high mesh above the low one.")
+    uv_angle: float = Field(66.0, ge=1, le=89, description="Smart UV angle limit in degrees: lower gives more, flatter islands.")
+    formats: list[Literal["glb", "fbx"]] = Field(["glb", "fbx"], min_length=1, description="glb = glTF binary with both maps inside; fbx = FBX with the normal map embedded. The maps are also written as PNG.")
 
 
 class JobId(BaseModel):
@@ -256,6 +268,11 @@ TOOLS: list[Tool] = [
     Tool("split_start", _d("Cut the watertight solid into two printable parts. Set the plane and optional mating pegs. Returns a job id.",
                            synonyms="partir malla, dividir para imprimir, encajes"),
          SplitArgs, ann(draft_safe=True), lambda s, a: s.start_split(a.project_id, a.model_dump(exclude={"project_id"}))),
+    Tool("asset_start", _d("Turn the high-resolution result into a game asset with Blender: retopology to a clean low-poly mesh, automatic UVs, a tangent-space normal map "
+                           "and an ambient-occlusion map baked from the high mesh, and glTF (.glb) and FBX files in metres with the base on the floor. Returns a job id.",
+                           "Needs a sculpt (and the closed solid for the cleanest bake). The result is in result asset: model_look draws it, result_export writes the folder.",
+                           "retopología, UV, bake, normales, oclusión, malla de juego, glTF, FBX, exportar a motor"),
+         AssetArgs, ann(draft_safe=True), lambda s, a: s.start_asset(a.project_id, a.model_dump(exclude={"project_id"}))),
     Tool("job_status", _d("State of a job: queued, running (stage and progress), done (with result), cancelled or error."), JobId, ann(read_only=True),
          lambda s, a: s.job(a.job_id)),
     Tool("job_cancel", _d("Cancel a queued or running sculpt or directed sculpt. A running job stops at its next checkpoint and keeps the last completed sculpt."),

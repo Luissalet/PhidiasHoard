@@ -70,7 +70,12 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 - **Watertight solid**: one button fuses everything into a single closed solid with Blender in the background
   (thickness for loose sheets, voxel remesh) and checks that no edge is left open. It fills sealed cavities left
   by the remesh while keeping passages that are open to the outside. Disable **Fill cavities** to keep the raw remesh.
-- **3D view and pictures**: original, sculpt and closed solid in the browser; pictures shaded from the geometry
+- **Game asset**: turns the high-resolution result (the closed solid when there is one, else the sculpt) into a
+  light mesh for a game engine, with Blender in the background. Retopology with QuadriFlow (clean quads; edge-collapse
+  decimation when it cannot, or when you choose it), automatic UVs, and a tangent-space normal map and an
+  ambient-occlusion map baked from the high mesh. It writes glTF (`.glb`, both maps inside) and FBX in metres with
+  the base on the floor, plus the maps as PNG. You set the face count, map resolution, occlusion samples and size.
+- **3D view and pictures**: original, sculpt, closed solid and game asset in the browser; pictures shaded from the geometry
   itself, from any angle, zoomed on a spot, or next to the original.
 - **STL** in millimetres with the base at z = 0, downloaded or saved in a `Phidias` folder next to the source model.
 - **Print files**: export a 3MF with the sculpt's material assignments. Split a watertight solid on an X, Y or Z
@@ -85,7 +90,7 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 | Library and projects | `status`, `library_scan`, `project_list`, `project_create`, `project_get`, `project_set`, `project_delete` |
 | Materials | `material_look`, `material_set` |
 | Sculpting and remodelling | `sculpt_start`, `remodel_plan`, `remodel_set`, `remodel_start`, `direct_start` |
-| Solid and print files | `close_start`, `split_start`, `result_export` |
+| Solid, asset and print files | `close_start`, `split_start`, `asset_start`, `result_export` |
 | Jobs and views | `job_status`, `job_cancel`, `model_look` |
 | Settings | `settings_get`, `settings_set` |
 
@@ -120,13 +125,15 @@ or point Settings at an existing Python with Torch and Transformers. Inference r
 - The relief comes from what the textures hold. A flat colour gives nothing, and a baked atlas without normal maps
   gives less than the game's original textures would.
 - The watertight solid loses detail finer than its voxel size.
+- The game asset carries a normal map and an occlusion map, not a colour map: the material is a neutral grey.
+  The FBX embeds the normal map; the occlusion map travels in the glTF and as a PNG.
 - Leaves and tree cards stay flat sheets with thickness: they are not turned into volumes.
 
 ## Project layout
 
 | Path | Contents |
 | --- | --- |
-| `phidias_hoard/engine/` | Relief, sculpting, refinement, ground block, watertight solid, split and STL/3MF export |
+| `phidias_hoard/engine/` | Relief, sculpting, refinement, ground block, watertight solid, split, game asset and STL/3MF export |
 | `phidias_hoard/remodel/` | Piece detection and Blender rebuild into quads |
 | `phidias_hoard/api/`, `static/` | Web API, agent tools and the interface |
 | `phidias_hoard/hoard_link/` | Shared Hoard family code |

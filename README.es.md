@@ -80,6 +80,12 @@ milímetros.
 - **Vista 3D e imágenes**: original, esculpido y sólido cerrado en el navegador; imágenes sombreadas a partir de la
   propia geometría, desde cualquier ángulo, ampliadas sobre un punto o junto al original.
 - **STL** en milímetros con la base en z = 0, descargado o guardado en una carpeta `Phidias` junto al modelo de origen.
+- **Asset de juego**: pasa el resultado de alta resolución (el sólido cerrado si existe, si no el esculpido) a una
+  malla ligera para un motor de juego, con Blender en segundo plano. Retopología con QuadriFlow (quads limpios; colapso
+  de aristas cuando no puede, o si lo eliges), UV automáticas y un mapa de normales en espacio tangente y un mapa de
+  oclusión ambiental horneados desde la malla alta. Escribe glTF (`.glb`, con los dos mapas dentro) y FBX en metros
+  con la base en el suelo, y los mapas también en PNG. Eliges las caras, la resolución de los mapas, las muestras
+  de oclusión y el tamaño.
 - **Archivos de impresión**: exporta el esculpido a 3MF con sus materiales. Parte un sólido cerrado por un plano
   X, Y o Z y añade encajes con la holgura que indiques. Descarga los dos STL o un 3MF con las piezas separadas.
 
@@ -92,7 +98,7 @@ milímetros.
 | Biblioteca y proyectos | `status`, `library_scan`, `project_list`, `project_create`, `project_get`, `project_set`, `project_delete` |
 | Materiales | `material_look`, `material_set` |
 | Esculpido y remodelado | `sculpt_start`, `remodel_plan`, `remodel_set`, `remodel_start`, `direct_start` |
-| Sólido e impresión | `close_start`, `split_start`, `result_export` |
+| Sólido, asset e impresión | `close_start`, `split_start`, `asset_start`, `result_export` |
 | Trabajos y vistas | `job_status`, `job_cancel`, `model_look` |
 | Ajustes | `settings_get`, `settings_set` |
 
@@ -134,7 +140,7 @@ La inferencia se ejecuta en el PC por CPU.
 
 | Ruta | Contenido |
 | --- | --- |
-| `phidias_hoard/engine/` | Relieve, esculpido, refinado, bloque de suelo, sólido cerrado, corte y exportación STL/3MF |
+| `phidias_hoard/engine/` | Relieve, esculpido, refinado, bloque de suelo, sólido cerrado, corte, asset de juego y exportación STL/3MF |
 | `phidias_hoard/remodel/` | Detección de piezas y reconstrucción en quads con Blender |
 | `phidias_hoard/api/`, `static/` | API web, herramientas de agente e interfaz |
 | `phidias_hoard/hoard_link/` | Código compartido de la familia Hoard |

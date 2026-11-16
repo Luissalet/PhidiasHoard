@@ -52,6 +52,7 @@
           <button data-which="remodel" disabled>Remodelado</button>
           <button data-which="sculpt" disabled>Esculpido</button>
           <button data-which="closed" disabled>Sólido cerrado</button>
+          <button data-which="asset" disabled>Asset de juego</button>
         </div>
         <label class="check" id="wire-box" hidden><input type="checkbox" id="wire" checked><span>Malla</span></label>
         <span class="viewinfo" id="view-info"></span>
@@ -61,6 +62,7 @@
         <button class="btn" id="btn-direct" disabled title="Esculpido por desplazamiento dirigido por el modelo: mira cada material, decide cómo esculpirlo, mira el resultado y lo rehace">Esculpir con IA</button>
         <button class="btn" id="btn-sculpt" disabled>Esculpir</button>
         <button class="btn" id="btn-close" disabled title="Fundir todo en un único sólido estanco con Blender">Cerrar malla</button>
+        <button class="btn" id="btn-asset" disabled title="Pasar el resultado de alta resolución a un asset de juego: malla ligera, UV, mapas de normales y oclusión, glTF y FBX">Preparar asset</button>
         <button class="btn" id="btn-download" disabled>Descargar STL</button>
         <button class="btn" id="btn-download-obj" hidden>Descargar OBJ</button>
         <button class="btn" id="btn-export" disabled title="Guardar el STL en una carpeta Phidias junto al modelo de origen">Guardar junto al modelo</button>
@@ -107,6 +109,10 @@
           <a class="btn small" id="download-piece-b">STL B</a>
           <a class="btn small" id="download-pieces-3mf">3MF de las piezas</a>
         </div>
+      </section>
+      <section class="card" id="asset-card" hidden>
+        <h2>Asset de juego</h2>
+        <div class="row" id="asset-files"></div>
       </section>
       <section class="card">
         <h2>Piezas <small id="piece-count"></small></h2>

@@ -10,7 +10,7 @@ const RECIPES = [['auto', 'Automática'], ['normal', 'Mapa de normales'], ['reli
 const PATTERNS = [['', 'Sin detalle añadido'], ['rock', 'Roca'], ['cracks', 'Grietas'], ['cobble', 'Adoquines'],
   ['bricks', 'Ladrillo'], ['planks', 'Tablas'], ['tiles', 'Tejas'], ['bark', 'Corteza'], ['ripples', 'Ondas'],
   ['flutes', 'Estrías de columna'], ['carved_wood', 'Madera tallada'], ['scales', 'Escamas'], ['moss', 'Musgo']];
-const WHY = { before: 'Original', remodel: 'Remodelado', sculpt: 'Esculpido', closed: 'Sólido cerrado' };
+const WHY = { before: 'Original', remodel: 'Remodelado', sculpt: 'Esculpido', closed: 'Sólido cerrado', asset: 'Asset de juego' };
 const KINDS = [['roof', 'Tejado'], ['tiled', 'Tejado tal cual, con tejas'], ['sweep', 'Viga'], ['body', 'Cuerpo con pilares'], ['block', 'Bloque'], ['lathe', 'Torneado'], ['stairs', 'Escalera'], ['organic', 'Figura suavizada'], ['rock', 'Roca en quads'], ['keep', 'Original limpio'], ['drop', 'Quitar']];
 const PARAMS = { roof: [['tiles', 'Tejas por lado', 14], ['rows', 'Tramos', 6], ['corner_lift', 'Alero levantado', 0.35], ['concave', 'Curva', 1.45]], body: [['bays_x', 'Vanos frente', 3], ['bays_y', 'Vanos lado', 3], ['bars', 'Barrotes', 5]], block: [['bevel', 'Bisel (mm)', 0.25], ['emboss', 'Dibujo en relieve (0/1)', 1]], lathe: [['segments', 'Segmentos', 24], ['sides', 'Lados (0 redondo)', 0], ['flutes', 'Estrías', 0]], tiled: [['tiles', 'Tejas a lo ancho', 14], ['emboss', 'Dibujo en relieve (0/1)', 1], ['cap', 'Completar lado ausente (0/1)', 1]], sweep: [['emboss', 'Dibujo en relieve (0/1)', 1]], stairs: [['steps', 'Peldaños', 5]], rock: [['level', 'Subdivisiones (1-4)', 2], ['emboss', 'Dibujo en relieve (0/1)', 1], ['thickness_mm', 'Grosor (mm, 0 sin grosor)', 0]], organic: [['level', 'Subdivisiones (1-4)', 3], ['emboss', 'Dibujo en relieve (0/1)', 1], ['thickness_mm', 'Grosor (mm, 0 sin grosor)', 0]], keep: [['thickness_mm', 'Grosor (mm, 0 sin grosor)', 0], ['bevel', 'Bisel (mm)', 0.15], ['emboss', 'Dibujo en relieve (0/1)', 1], ['cap', 'Completar lado ausente (0/1)', 1]], drop: [] };
 
@@ -233,10 +233,14 @@ function refreshButtons() {
   $('btn-remodel-ai').disabled = !p || busy;
   $('btn-remodel').textContent = r.remodel ? 'Volver a remodelar' : 'Remodelar';
   const rm = state.which === 'remodel';
-  $('btn-download').textContent = rm ? 'Descargar .blend' : 'Descargar STL';
+  const asset = state.which === 'asset';
+  $('btn-download').textContent = rm ? 'Descargar .blend' : (asset ? 'Descargar .glb' : 'Descargar STL');
   $('btn-download-obj').hidden = !rm;
   $('btn-sculpt').textContent = r.sculpt ? 'Volver a esculpir' : 'Esculpir';
   $('btn-close').disabled = !p || busy || !r.sculpt;
+  $('btn-asset').disabled = !p || busy || !r.sculpt;
+  $('btn-asset').textContent = r.asset ? 'Rehacer asset' : 'Preparar asset';
+  drawAssetFiles(p, r);
   $('print-card').hidden = !p || !r.sculpt;
   $('btn-split').disabled = busy || !r.closed?.watertight;
   $('print-pieces').hidden = !r.split;
@@ -247,7 +251,7 @@ function refreshButtons() {
     $('download-piece-b').href = url + 'piece-b.stl';
     $('download-pieces-3mf').href = url + 'pieces.3mf';
   }
-  $('btn-download').disabled = !p || !(rm ? r.remodel : r.sculpt);
+  $('btn-download').disabled = !p || !(rm ? r.remodel : (asset ? r.asset?.files?.includes('asset.glb') : r.sculpt));
   $('btn-export').disabled = !p || !(r.sculpt || r.remodel);
 }
 
@@ -264,6 +268,15 @@ function drawResult() {
     if (m.completed_sides) bar.append(el('span', { text: m.completed_sides === 1 ? 'Un lado completado' : `${m.completed_sides} lados completados` }));
     bar.append(el('span', {}, 'Medidas: ', el('b', { text: `${m.size_mm.map((v) => v.toFixed(1)).join(' × ')} mm` })));
     bar.append(el('span', { text: `${m.seconds} s` }));
+    return;
+  }
+  if (state.which === 'asset' && (p.results || {}).asset) {
+    const a = p.results.asset;
+    bar.append(el('span', {}, 'Asset: ', el('b', { text: `${nf.format(a.triangles)} triángulos` }), a.low_quads ? ` · ${nf.format(a.low_quads)} quads` : '', ` · ${a.method === 'quadriflow' ? 'QuadriFlow' : 'decimación'}`));
+    bar.append(el('span', {}, 'Medidas: ', el('b', { text: `${a.size_m.map((v) => v.toFixed(2)).join(' × ')} m` })));
+    bar.append(el('span', { text: `Mapas de ${a.spec.texture_px} px · las UV ocupan el ${Math.round(a.uv_coverage * 100)} %` }));
+    for (const note of a.notes || []) bar.append(el('span', { class: 'warn', text: note }));
+    bar.append(el('span', { text: `${a.seconds} s` }));
     return;
   }
   const r = (p.results || {})[state.which === 'before' ? 'sculpt' : state.which];
@@ -450,7 +463,7 @@ function watchJob(id) {
   const tick = async () => {
     let j;
     try { j = await call('job_status', { job_id: id }); } catch (err) { clearInterval(state.poll); state.poll = null; $('job').hidden = true; refreshButtons(); return; }
-    const names = { close: 'Cerrando', split: 'Partiendo', direct: 'Dirigiendo', remodel: 'Remodelando', remodel_direct: 'Remodelando', sculpt: 'Esculpiendo' };
+    const names = { asset: 'Preparando el asset', close: 'Cerrando', split: 'Partiendo', direct: 'Dirigiendo', remodel: 'Remodelando', remodel_direct: 'Remodelando', sculpt: 'Esculpiendo' };
     $('job-stage').textContent = `${names[j.kind]} · ${j.stage}`;
     $('job-fill').style.width = `${Math.round(j.progress * 100)}%`;
     cancel.hidden = !j.cancellable && !j.cancel_requested;
@@ -461,10 +474,11 @@ function watchJob(id) {
       if (j.state === 'error') toast(j.error, 'err', 12000);
       else if (j.state === 'cancelled') toast('Trabajo cancelado.');
       else if (j.kind === 'split') toast('Las piezas están listas para descargar.', 'ok');
+      else if (j.kind === 'asset') toast('Asset de juego listo.', 'ok');
       else toast(j.kind === 'close' ? 'Sólido cerrado listo.' : (j.kind.startsWith('remodel') ? 'Remodelado listo.' : 'Esculpido listo.'), 'ok');
       if (state.project && state.project.id === j.project_id) {
         const p = await call('project_get', { project_id: j.project_id });
-        if (j.state === 'done' && j.kind !== 'split') state.which = j.kind === 'close' ? 'closed' : (j.kind.startsWith('remodel') ? 'remodel' : 'sculpt');
+        if (j.state === 'done' && j.kind !== 'split') state.which = j.kind === 'close' ? 'closed' : (j.kind === 'asset' ? 'asset' : (j.kind.startsWith('remodel') ? 'remodel' : 'sculpt'));
         setProject(p, true);
       }
       loadProjects();
@@ -481,6 +495,36 @@ async function startJob(tool, options = {}) {
     const j = await call(tool, { project_id: state.project.id, ...options });
     watchJob(j.id);
   } catch (err) { fail(err); }
+}
+
+function drawAssetFiles(p, r) {
+  const card = $('asset-card');
+  card.hidden = !p || !r.asset;
+  if (card.hidden) return;
+  const labels = { 'asset.glb': 'glTF (.glb)', 'asset.fbx': 'FBX', 'asset_normal.png': 'Mapa de normales', 'asset_ao.png': 'Mapa de oclusión' };
+  $('asset-files').replaceChildren(...r.asset.files.map((name) => el('a', { class: 'btn small', href: `/api/projects/${p.id}/asset/${name}`, text: labels[name] || name })));
+}
+
+async function startAsset() {
+  const number = (value, min, max, step = 1) => el('input', { class: 'input', type: 'number', value, min, max, step });
+  const select = (options, value) => el('select', { class: 'input' }, options.map(([v, text]) => el('option', { value: v, text, selected: v === value })));
+  const source = select([['auto', 'El sólido cerrado si existe, si no el esculpido'], ['closed', 'Sólido cerrado'], ['sculpt', 'Esculpido']], 'auto');
+  const method = select([['quadriflow', 'QuadriFlow (quads limpios)'], ['decimate', 'Decimación (triángulos)']], 'quadriflow');
+  const faces = number(5000, 100, 500000, 100), size = number(1, 0.01, 10000, 'any');
+  const texture = select([['512', '512 px'], ['1024', '1024 px'], ['2048', '2048 px'], ['4096', '4096 px']], '1024');
+  const samples = number(32, 1, 512), glb = el('input', { type: 'checkbox', checked: true }), fbx = el('input', { type: 'checkbox', checked: true });
+  const field = (text, input) => el('label', { class: 'field' }, el('span', { text }), input);
+  const check = (text, input) => el('label', { class: 'check' }, input, el('span', { text }));
+  const ok = await modal({ title: 'Preparar asset de juego', body: [
+    field('Malla de origen', source), field('Retopología', method), field('Caras de la malla ligera', faces),
+    field('Tamaño del lado mayor (m)', size), field('Resolución de los mapas', texture), field('Muestras de oclusión', samples),
+    check('glTF (.glb)', glb), check('FBX', fbx)],
+    buttons: [{ label: 'Cancelar', value: null }, { label: 'Preparar', value: true, kind: 'primary' }] });
+  if (!ok) return;
+  const formats = [glb.checked && 'glb', fbx.checked && 'fbx'].filter(Boolean);
+  if (!formats.length) { toast('Elige glTF, FBX o los dos.', 'err'); return; }
+  await startJob('asset_start', { source: source.value, method: method.value, target_faces: +faces.value, size_m: +size.value,
+    texture_px: +texture.value, ao_samples: +samples.value, formats });
 }
 
 async function startSplit() {
@@ -547,14 +591,16 @@ $('wire').addEventListener('change', (ev) => view.showEdges(ev.target.checked));
 $('btn-download-obj').addEventListener('click', () => { window.location.href = `/api/projects/${state.project.id}/download/remodel.obj`; });
 $('btn-close').addEventListener('click', () => startJob('close_start', { fill_interior: $('close-fill-interior').checked }));
 $('btn-split').addEventListener('click', startSplit);
+$('btn-asset').addEventListener('click', startAsset);
 $('btn-download').addEventListener('click', () => {
   if (state.which === 'remodel') { window.location.href = `/api/projects/${state.project.id}/download/remodel.blend`; return; }
+  if (state.which === 'asset') { window.location.href = `/api/projects/${state.project.id}/asset/asset.glb`; return; }
   const which = state.which === 'closed' ? 'closed' : 'sculpt';
   window.location.href = `/api/projects/${state.project.id}/download/${which}.stl`;
 });
 $('btn-export').addEventListener('click', async () => {
   try {
-    const r = await call('result_export', { project_id: state.project.id, result: state.which === 'remodel' ? 'remodel' : (state.which === 'closed' ? 'closed' : 'sculpt') });
+    const r = await call('result_export', { project_id: state.project.id, result: state.which === 'remodel' ? 'remodel' : (state.which === 'asset' ? 'asset' : (state.which === 'closed' ? 'closed' : 'sculpt')) });
     toast(`Guardado en ${r.path}`, 'ok', 9000);
   } catch (err) { fail(err); }
 });

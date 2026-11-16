@@ -21,7 +21,7 @@ import numpy as np
 from . import __version__
 from .config import Config, Settings
 from . import director
-from .engine import export, finish, heights, learned_relief, meshio, patterns, plinth_detail, preview, print_split, recipes, three_mf
+from .engine import asset as asset_pipeline, export, finish, heights, learned_relief, meshio, patterns, plinth_detail, preview, print_split, recipes, three_mf
 from .llm import ModelClient
 from .remodel import build as remodel_build
 from .remodel import pieces as remodel_pieces
@@ -36,7 +36,7 @@ SKIP_DIRS = {"trabajo", "originales", "herramientas", "node_modules", ".git", "_
 PROJECT_SETTINGS = ("size_mm", "min_edge_mm", "tolerance_mm", "max_faces", "ground", "base_mm", "plinth", "plinth_margin_mm",
                     "plinth_name", "plinth_socket_mm", "plinth_socket_depth_mm",
                     "normal_cutoff_mm", "sheet_mm")
-RESULTS = ("sculpt", "closed", "remodel")
+RESULTS = ("sculpt", "closed", "remodel", "asset")
 CANCELLABLE_JOBS = {"sculpt", "direct"}
 
 
@@ -623,6 +623,8 @@ class Services:
                 job["result"] = self._do_direct(job["project_id"], say, job["params"], begin_publish)
             elif job["kind"] == "split":
                 job["result"] = self._do_split(job["project_id"], say, job["params"])
+            elif job["kind"] == "asset":
+                job["result"] = self._do_asset(job["project_id"], say, job["params"])
             else:
                 job["result"] = self._do_close(job["project_id"], say, job["params"]["fill_interior"])
             job["state"] = "done"
@@ -692,6 +694,7 @@ class Services:
         project.setdefault("results", {})["sculpt"] = info
         project["results"].pop("closed", None)
         self._clear_split(project, pdir)
+        self._clear_asset(project, pdir)
         for stale in ("closed.stl", "closed.bin", "closed.png", "closed_P.npy", "closed_F.npy"):
             (pdir / stale).unlink(missing_ok=True)
         self.store.save(project)
@@ -736,6 +739,8 @@ class Services:
         info["watertight"] = info["open_edges"] == 0
         project = self.store.get(pid)
         self._clear_split(project, pdir)
+        if project.get("results", {}).get("asset", {}).get("source") == "closed":
+            self._clear_asset(project, pdir)
         project.setdefault("results", {})["closed"] = info
         self.store.save(project)
         return info
@@ -747,6 +752,70 @@ class Services:
         if not finish.find_blender(self.settings["blender"]):
             raise PhidiasError("unavailable", "Hace falta Blender para partir la malla.")
         return self._enqueue("split", pid, spec)
+
+    def start_asset(self, pid: str, spec: dict[str, Any]) -> dict[str, Any]:
+        project = self.store.get(pid)
+        results = project.get("results", {})
+        source = spec["source"] if spec["source"] != "auto" else ("closed" if "closed" in results else "sculpt")
+        if source not in results:
+            raise PhidiasError("invalid", "Primero hay que esculpir el proyecto." if source == "sculpt" else "Primero hay que cerrar la malla.",
+                               "Lanza sculpt_start (y close_start si quieres partir del sólido cerrado) y espera a que acabe.")
+        if not finish.find_blender(self.settings["blender"]):
+            raise PhidiasError("unavailable", "No encuentro Blender en este equipo.", "Instálalo o indica su ruta en el ajuste blender.")
+        return self._enqueue("asset", pid, {**spec, "source": source})
+
+    @staticmethod
+    def _clear_asset(project: dict[str, Any], pdir: Path) -> None:
+        if project.get("results", {}).pop("asset", None) is not None:
+            shutil.rmtree(pdir / "asset", ignore_errors=True)
+            for stale in ("asset_P.npy", "asset_F.npy", "asset.bin", "asset.png"):
+                (pdir / stale).unlink(missing_ok=True)
+
+    def _do_asset(self, pid: str, say, spec: dict[str, Any]) -> dict[str, Any]:
+        project = self.store.get(pid)
+        blender = finish.find_blender(self.settings["blender"])
+        if not blender:
+            raise PhidiasError("unavailable", "No encuentro Blender en este equipo.")
+        pdir = self.store.dir(pid)
+        t0 = time.time()
+        say("preparando la malla de alta resolución", 0.05)
+        P, F = self.mesh(pid, spec["source"])
+        with tempfile.TemporaryDirectory(prefix="asset-", dir=pdir) as temp:
+            folder = Path(temp)
+            say("Blender: retopología, UV y horneado", 0.1)
+            try:
+                report = asset_pipeline.create(P, F, spec, folder, blender, project["name"])
+            except ValueError as exc:
+                raise PhidiasError("invalid", str(exc)) from exc
+            except Exception as exc:
+                raise PhidiasError("failed", str(exc)) from exc
+            say("guardando el asset", 0.9)
+            LP = np.load(folder / "low_P.npy").astype(np.float64)
+            LF = np.load(folder / "low_F.npy")
+            LP -= LP.min(0)
+            for scratch in ("high.ply", "job.json", "report.json", "low_P.npy", "low_F.npy"):
+                (folder / scratch).unlink(missing_ok=True)
+            self._clear_asset(project, pdir)
+            (pdir / "asset").mkdir(exist_ok=True)
+            for artifact in folder.iterdir():
+                artifact.replace(pdir / "asset" / artifact.name)
+        np.save(pdir / "asset_P.npy", LP.astype(np.float32))
+        np.save(pdir / "asset_F.npy", LF)
+        (pdir / "asset.bin").write_bytes(export.viewer_buffers(LP, LF))
+        preview.render(LP, LF, size=640).save(pdir / "asset.png")
+        info = {**report, "source": spec["source"], "triangles_total": int(len(LF)), "size_mm": [round(float(v), 2) for v in LP.max(0)],
+                "seconds": round(time.time() - t0, 1), "at": time.time(),
+                "files": sorted(path.name for path in (pdir / "asset").iterdir())}
+        project = self.store.get(pid)
+        project.setdefault("results", {})["asset"] = info
+        self.store.save(project)
+        return info
+
+    def asset_file(self, pid: str, name: str) -> Path:
+        path = self.store.dir(pid) / "asset" / name
+        if "asset" not in self.store.get(pid).get("results", {}) or path.name != name or not path.is_file():
+            raise PhidiasError("not_found", "Ese archivo del asset todavía no existe.", "Lanza asset_start y espera a que acabe.")
+        return path
 
     @staticmethod
     def _clear_split(project: dict[str, Any], pdir: Path) -> None:
@@ -857,9 +926,39 @@ class Services:
         r = project["results"]["remodel"]
         return {"path": paths[0], "paths": paths, "result": "remodel", "quads": r["quads"], "tris": r["tris"], "ngons": r["ngons"]}
 
+    def _export_asset(self, project: dict[str, Any], folder: str) -> dict[str, Any]:
+        info = project["results"]["asset"]
+        src = self.store.dir(project["id"]) / "asset"
+        safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in project["name"]).strip() or project["id"]
+        if folder:
+            base = Path(folder).expanduser()
+        elif self.settings["export_dir"]:
+            base = Path(self.settings["export_dir"])
+        else:
+            base = Path(project["source"]["path"]).parent / "Phidias"
+        dest = base / f"{safe} asset"
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            dest = self.config.data_dir / "exports" / f"{safe} asset"
+            dest.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for name in info["files"]:
+            if (src / name).is_file():
+                shutil.copyfile(src / name, dest / name)
+                paths.append(str(dest / name))
+        if not paths:
+            raise PhidiasError("not_found", "Todavía no hay asset.", "Lanza asset_start y espera a que acabe.")
+        return {"path": paths[0], "paths": paths, "folder": str(dest), "result": "asset", "triangles": info["triangles_total"],
+                "bytes": sum(Path(p).stat().st_size for p in paths)}
+
     def export_result(self, pid: str, which: str = "", folder: str = "", fmt: str = "stl") -> dict[str, Any]:
         project = self.store.get(pid)
         results = project.get("results", {})
+        if which == "asset":
+            if "asset" not in results:
+                raise PhidiasError("not_found", "Todavía no hay asset.", "Lanza asset_start y espera a que acabe.")
+            return self._export_asset(project, folder)
         if not which:
             if fmt == "3mf":
                 which = "split" if "split" in results else "sculpt"
