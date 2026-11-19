@@ -83,6 +83,8 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 
 ## Connection with Faustus and Hoard Hub
 
+Declares production handoffs for remodelled scenery and closed figure meshes. The checks cover views, orientation, dimensions and print contacts.
+
 `faustus-plugin.json` (id `phidias`) registers the app as a Faustus plugin: Hoard Hub starts it on demand on port 5251 and checks `/api/health`. The same operations the buttons use are available to assistants through MCP (`mcp_server.py`, stdio), with pictures of materials and models so they can judge the relief they ask for. Tools by group:
 
 | Group | Tools |

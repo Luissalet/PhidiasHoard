@@ -23,6 +23,12 @@
     "added-detail-patterns"
   ],
   "x-family": {
+    "production": {
+      "handoffs": [
+        {"accepts": "scenery-mesh", "produces": ["remodelled-scenery"], "skill": "game-scenery-remodel", "check": {"en": "Compare the profile and an isometric view, then verify axis orientation and dimensions.", "es": "Compara el perfil y una vista isométrica y comprueba la orientación de los ejes y las dimensiones."}},
+        {"accepts": "posed-figure-mesh", "produces": ["closed-print-mesh"], "skill": "blender-asset-production", "check": {"en": "Open the STL and check expected contacts, dimensions and closed geometry before colouring.", "es": "Abre el STL y comprueba los apoyos, las dimensiones y el cierre de la geometría antes de colorearlo."}}
+      ]
+    },
     "copilot": true
   },
   "placeholders": [
