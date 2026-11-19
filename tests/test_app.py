@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
+import json
+import struct
 import subprocess
 import threading
 import time
@@ -47,6 +50,54 @@ def test_health_and_catalogue(client):
     assert client.post("/api/agent/call", json={"name": "status"}).status_code in (401, 403)
     r = client.post("/api/agent/call", json={"name": "status", "arguments": {}}, headers={"Authorization": f"Bearer {client.svc.token}"})
     assert r.status_code == 200 and "can_close" in r.text
+
+
+def test_print_handoff_pins_pose_keeps_solid_base_and_checks_export(client, tmp_path):
+    source = tmp_path / "pose.glb"
+    vertices = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
+    doc = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(vertices)}],
+           "bufferViews": [{"buffer": 0, "byteLength": len(vertices)}],
+           "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+           "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+           "nodes": [{"mesh": 0}], "scenes": [{"nodes": [0]}], "scene": 0}
+    chunk = json.dumps(doc).encode()
+    chunk += b" " * (-len(chunk) % 4)
+    data = (struct.pack("<4sII", b"glTF", 2, 28 + len(chunk) + len(vertices))
+            + struct.pack("<I4s", len(chunk), b"JSON") + chunk
+            + struct.pack("<I4s", len(vertices), b"BIN\0") + vertices)
+    source.write_bytes(data)
+    args = dict(source=str(source), source_sha256=sha256(data).hexdigest(),
+                source_ref="hoard://vulcan/pose/1", pose="turned", size_mm=216, solid_base=True)
+    stale = client.post("/api/ui/call", json={"name": "print_import", "arguments": {**args, "source_sha256": "0" * 64}})
+    assert stale.status_code == 409 and not call(client, "project_list")["projects"]
+    project = call(client, "print_import", **args)
+    assert project["source"]["print_handoff"]["pose"] == "turned"
+    assert project["settings"]["ground"] is False and project["settings"]["size_mm"] == 216
+    pid = project["id"]
+    withdrawn = call(client, "print_import_undo", **project["undo"])
+    assert withdrawn["archived"] and not call(client, "project_list")["projects"]
+    source.write_bytes(b"changed")
+    call(client, "print_import_undo", **withdrawn["undo"])
+    assert (client.svc.store.dir(pid) / "posed.glb").read_bytes() == data
+    job = call(client, "sculpt_start", project_id=pid)
+    assert job["state"] == "done", job
+    export = call(client, "result_export", project_id=pid, result="sculpt", format="3mf", folder=str(tmp_path / "exports"))
+    check = call(client, "print_check", path=export["path"])
+    assert export["topology"] == check
+    assert check["boundary_edges"] > 0 and not check["closed_oriented_edges"]
+
+
+def test_print_check_counts_three_faces_on_an_edge(client, tmp_path):
+    from phidias_hoard.engine import three_mf
+
+    path = tmp_path / "branch.3mf"
+    points = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1)]
+    faces = [(0, 1, 2), (1, 0, 3), (0, 1, 4)]
+    three_mf.write(path, [("branch", points, faces, None)], [("neutral", (110, 110, 110))])
+    report = call(client, "print_check", path=str(path))
+    assert report["sha256"] == sha256(path.read_bytes()).hexdigest()
+    assert report["nonmanifold_edges"] == 1 and report["boundary_edges"] == 6
+    assert report["winding_conflicts"] == report["degenerate_triangles"] == 0
 
 
 def test_library_lists_models_and_zips(client):

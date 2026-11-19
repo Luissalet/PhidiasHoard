@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from hashlib import file_digest
 from pathlib import Path
 from typing import Any, Optional
 
@@ -151,6 +152,8 @@ class Services:
     # ------------------------------------------------------------------ projects
     def _original_path(self, project: dict[str, Any]) -> Path:
         src = project.get("source", {})
+        if src.get("print_handoff"):
+            return self.store.dir(project["id"]) / "posed.glb"
         if src.get("inner"):
             root = (self.store.dir(project["id"]) / "src").resolve()
             path = (root / src["inner"]).resolve()
@@ -183,10 +186,12 @@ class Services:
             while len(self._scenes) > 2:
                 self._scenes.popitem(last=False)
 
-    def create_project(self, source: str, inner: str = "", name: str = "") -> dict[str, Any]:
+    def create_project(self, source: str, inner: str = "", name: str = "", *, print_handoff=None) -> dict[str, Any]:
         path = Path(source).expanduser()
         if not path.is_file():
             raise PhidiasError("not_found", f"No existe el archivo {path}.", "Pasa la ruta del modelo o de un ZIP que lo contenga.")
+        if print_handoff and (not path.is_absolute() or path.suffix.lower() != ".glb"):
+            raise PhidiasError("invalid", "A print handoff requires an absolute GLB path. / El relevo de impresión requiere la ruta absoluta a un GLB.")
         pid = self.store.new_id()
         pdir = self.store.dir(pid)
         low = path.suffix.lower()
@@ -203,9 +208,20 @@ class Services:
                    "created": time.time(), "source": {"path": str(path), "inner": inner}, "materials": {}, "results": {},
                    "settings": {k: self.settings[k] for k in ("size_mm", "min_edge_mm", "tolerance_mm", "max_faces", "base_mm", "plinth")}}
         project["settings"].update({"ground": True})
-        self.store.save(project)
+        if print_handoff:
+            project["source"]["print_handoff"] = print_handoff
+            project["settings"].update(size_mm=print_handoff["size_mm"], ground=not print_handoff["solid_base"])
+            pdir.mkdir()
+        else:
+            self.store.save(project)
         try:
             original = self._original_path(project)
+            if print_handoff:
+                shutil.copyfile(path, original)
+                with original.open("rb") as stream:
+                    digest = file_digest(stream, "sha256").hexdigest()
+                if digest != print_handoff["source_sha256"].lower():
+                    raise PhidiasError("conflict", "The pose revision changed. / Ha cambiado la revisión de la pose.")
             if inner:
                 folder = inner.replace("\\", "/").rpartition("/")[0]
                 if folder.lower().endswith("/obj"):        # textures of an OBJ folder may sit one level up
@@ -228,10 +244,10 @@ class Services:
                 project["source"]["converted"] = True
             scene = meshio.load_model(model)
         except PhidiasError:
-            self.store.delete(pid)
+            shutil.rmtree(pdir, ignore_errors=True)
             raise
         except Exception as exc:
-            self.store.delete(pid)
+            shutil.rmtree(pdir, ignore_errors=True)
             raise PhidiasError("invalid", f"No se pudo leer el modelo: {exc}") from exc
         areas = scene.face_areas()
         total = float(areas.sum()) or 1.0
@@ -255,7 +271,29 @@ class Services:
             self._write_before(project, scene)
         except Exception:                                  # a picture is never a reason to lose the project
             log.exception("before view")
-        return self.project(pid)
+        result = self.project(pid)
+        if print_handoff:
+            result["undo"] = {"project_id": pid}
+        return result
+
+    def undo_print_import(self, pid: str, restore: bool) -> dict[str, Any]:
+        active = self.store.dir(pid)
+        archive = self.config.projects_dir / ".print-withdrawn" / pid
+        source, target = (archive, active) if restore else (active, archive)
+        with self._lock:
+            if any(j["project_id"] == pid and j["state"] in ("queued", "running") for j in self.jobs.values()):
+                raise PhidiasError("busy", "The project has an active job. / El proyecto tiene un trabajo en marcha.")
+            if not source.exists() and target.exists():
+                return {"changed": False, "archived": not restore, "undo": {"project_id": pid, "restore": not restore}}
+            if not restore and not self.store.get(pid)["source"].get("print_handoff"):
+                raise PhidiasError("invalid", "Use a print handoff project. / Usa un proyecto importado por relevo de impresión.")
+            if not source.exists() or target.exists():
+                raise PhidiasError("conflict", "The handoff cannot be moved. / No se puede mover el relevo.")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source.rename(target)
+            self._scenes.pop(pid, None)
+            self._library = None
+        return {"changed": True, "archived": not restore, "undo": {"project_id": pid, "restore": not restore}}
 
     def _settings_of(self, project: dict[str, Any]) -> sculpting.SculptSettings:
         return sculpting.SculptSettings.from_dict(project.get("settings"))
@@ -554,8 +592,8 @@ class Services:
         job.update(state="cancelled", stage="cancelado", finished=time.time(), cancellable=False)
 
     def _enqueue(self, kind: str, pid: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        self.store.get(pid)
         with self._lock:
+            self.store.get(pid)
             for j in self.jobs.values():
                 if j["project_id"] == pid and j["state"] in ("queued", "running"):
                     raise PhidiasError("busy", "Ese proyecto ya tiene un trabajo en marcha.", "Consulta job_status y espera a que acabe.")
@@ -996,5 +1034,14 @@ class Services:
             out = dest / f"{safe} {size}mm{suffix}{src.suffix}"
             shutil.copyfile(src, out)
             paths.append(out)
-        return {"path": str(paths[0]), "paths": [str(p) for p in paths], "bytes": sum(p.stat().st_size for p in paths),
-                "result": which, "triangles": results[which].get("triangles_total")}
+        report = {"path": str(paths[0]), "paths": [str(p) for p in paths], "bytes": sum(p.stat().st_size for p in paths),
+                  "result": which, "triangles": results[which].get("triangles_total")}
+        if fmt == "3mf" and project["source"].get("print_handoff"):
+            report["topology"] = self.check_print(str(paths[0]))
+        return report
+
+    def check_print(self, path: str) -> dict[str, Any]:
+        try:
+            return three_mf.check(Path(path))
+        except (OSError, ValueError) as exc:
+            raise PhidiasError("invalid", f"Cannot inspect the 3MF. / No se puede comprobar el 3MF. {exc}") from exc
