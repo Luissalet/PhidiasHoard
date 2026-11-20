@@ -16,6 +16,7 @@ from collections import OrderedDict
 from hashlib import file_digest
 from pathlib import Path
 from typing import Any, Optional
+from urllib.request import ProxyHandler, Request, build_opener
 
 import numpy as np
 
@@ -28,6 +29,7 @@ from .remodel import build as remodel_build
 from .remodel import pieces as remodel_pieces
 from .engine import sculpt as sculpting
 from .errors import PhidiasError
+from .hoard_link._hubclient import NoRedirect, hub_url
 from .hoard_link.tokens import read_or_create_token
 from .store import Store
 
@@ -186,9 +188,17 @@ class Services:
             while len(self._scenes) > 2:
                 self._scenes.popitem(last=False)
 
+    def _fetch_pose(self, piece_id: int, target: Path) -> None:
+        request = Request(f"{hub_url()}/api/agora/piece_file/{piece_id}",
+                          headers={"Authorization": f"Bearer {self.token}"})
+        opener = build_opener(ProxyHandler({}), NoRedirect())
+        with opener.open(request, timeout=45) as response, target.open("wb") as stream:
+            shutil.copyfileobj(response, stream)
+
     def create_project(self, source: str, inner: str = "", name: str = "", *, print_handoff=None) -> dict[str, Any]:
-        path = Path(source).expanduser()
-        if not path.is_file():
+        piece_id = (print_handoff or {}).get("piece_id")
+        path = (self.config.data_dir.resolve() / f"piece-{piece_id}.glb") if piece_id else Path(source).expanduser()
+        if not piece_id and not path.is_file():
             raise PhidiasError("not_found", f"No existe el archivo {path}.", "Pasa la ruta del modelo o de un ZIP que lo contenga.")
         if print_handoff and (not path.is_absolute() or path.suffix.lower() != ".glb"):
             raise PhidiasError("invalid", "A print handoff requires an absolute GLB path. / El relevo de impresión requiere la ruta absoluta a un GLB.")
@@ -217,7 +227,12 @@ class Services:
         try:
             original = self._original_path(project)
             if print_handoff:
-                shutil.copyfile(path, original)
+                if piece_id:
+                    self._fetch_pose(piece_id, original)
+                    project["source"]["path"] = str(original)
+                    print_handoff["source_ref"] = print_handoff.get("source_ref") or f"Hub piece #{piece_id}"
+                else:
+                    shutil.copyfile(path, original)
                 with original.open("rb") as stream:
                     digest = file_digest(stream, "sha256").hexdigest()
                 if digest != print_handoff["source_sha256"].lower():
@@ -242,7 +257,7 @@ class Services:
                     raise PhidiasError("failed", "Blender tardó más de tres minutos en convertir el modelo.",
                                        "Exporta el modelo a GLB desde Blender e impórtalo de nuevo.") from exc
                 project["source"]["converted"] = True
-            scene = meshio.load_model(model)
+            scene = meshio.mark_atlases(meshio.load_gltf(model, frozen=True)) if print_handoff else meshio.load_model(model)
         except PhidiasError:
             shutil.rmtree(pdir, ignore_errors=True)
             raise
@@ -615,13 +630,13 @@ class Services:
     def start_sculpt(self, pid: str) -> dict[str, Any]:
         return self._enqueue("sculpt", pid)
 
-    def start_close(self, pid: str, fill_interior: bool = True) -> dict[str, Any]:
+    def start_close(self, pid: str, fill_interior: bool = True, bridge_gap_mm: float = 0) -> dict[str, Any]:
         project = self.store.get(pid)
         if "sculpt" not in project.get("results", {}):
             raise PhidiasError("invalid", "Primero hay que esculpir el proyecto.", "Lanza sculpt_start y espera a que acabe.")
         if not finish.find_blender(self.settings["blender"]):
             raise PhidiasError("unavailable", "No encuentro Blender en este equipo.", "Instálalo o indica su ruta en el ajuste blender.")
-        return self._enqueue("close", pid, {"fill_interior": fill_interior})
+        return self._enqueue("close", pid, {"fill_interior": fill_interior, "bridge_gap_mm": bridge_gap_mm})
 
     def _run(self) -> None:
         while True:
@@ -664,7 +679,7 @@ class Services:
             elif job["kind"] == "asset":
                 job["result"] = self._do_asset(job["project_id"], say, job["params"])
             else:
-                job["result"] = self._do_close(job["project_id"], say, job["params"]["fill_interior"])
+                job["result"] = self._do_close(job["project_id"], say, **job["params"])
             job["state"] = "done"
             job["stage"], job["progress"] = "hecho", 1.0
         except _JobCancelled:
@@ -738,7 +753,7 @@ class Services:
         self.store.save(project)
         return info
 
-    def _do_close(self, pid: str, say, fill_interior: bool) -> dict[str, Any]:
+    def _do_close(self, pid: str, say, fill_interior: bool, bridge_gap_mm: float = 0) -> dict[str, Any]:
         project = self.store.get(pid)
         pdir = self.store.dir(pid)
         blender = finish.find_blender(self.settings["blender"])
@@ -748,21 +763,51 @@ class Services:
         say("preparando", 0.05)
         P, F = np.load(pdir / "sculpt_P.npy"), np.load(pdir / "sculpt_F.npy")
         voxel, shell = float(self.settings["voxel_mm"]), float(self.settings["shell_mm"])
+        indexed = bool(project["source"].get("print_handoff") or bridge_gap_mm)
+        face_budget = int(project["settings"].get("max_faces", 8_000_000))
+        topology = None
+        bridges = None
         with tempfile.TemporaryDirectory(prefix="close-", dir=pdir) as scratch:
             ply = Path(scratch) / "sculpt.ply"
-            raw = Path(scratch) / "closed.stl"
+            raw = Path(scratch) / ("closed.npz" if indexed else "closed.stl")
             export.write_ply(ply, P, F)
-            say("Blender: fundiendo en un sólido", 0.15)
-            try:
-                run = finish.close_mesh(blender, ply, raw, voxel, shell, int(project["settings"].get("max_faces", 8_000_000)))
-                say("comprobando", 0.85)
-                CP, CF = finish.read_stl(raw)
-            except Exception as exc:
-                raise PhidiasError("failed", str(exc)) from exc
-        cavities = 0
-        if fill_interior:
-            say("rellenando cavidades", 0.88)
-            CP, CF, cavities = finish.fill_cavities(CP, CF)
+
+            def remesh(resolution, bridges, budget):
+                say("Blender: fundiendo en un sólido", 0.15)
+                raw.unlink(missing_ok=True)
+                try:
+                    run = finish.close_mesh(blender, ply, raw, resolution, shell, budget, bridges=bridges)
+                    say("comprobando", 0.85)
+                    if indexed:
+                        with np.load(raw, allow_pickle=False) as data:
+                            points, faces = data["points"].astype(np.float64), data["faces"]
+                    else:
+                        points, faces = finish.read_stl(raw)
+                except Exception as exc:
+                    raise PhidiasError("failed", str(exc)) from exc
+                cavities = 0
+                if fill_interior:
+                    say("rellenando cavidades", 0.88)
+                    points, faces, cavities = finish.fill_cavities(points, faces)
+                return points, faces, cavities, run
+
+            for resolution in (voxel, voxel * 1.25, voxel * 1.5) if indexed else (voxel,):
+                if bridge_gap_mm and bridges is None:
+                    # Find contacts before decimation removes vertices on flat surfaces.
+                    CP, CF, cavities, run = remesh(resolution, (), 0)
+                    bridges, _ = finish.bridge_spans(CP, CF, bridge_gap_mm)
+                    if bridges or 0 < face_budget < len(CF):
+                        CP, CF, cavities, run = remesh(resolution, bridges, face_budget)
+                else:
+                    CP, CF, cavities, run = remesh(resolution, bridges or (), face_budget)
+                if not indexed:
+                    break
+                topology = three_mf._mesh_topology(np.round(CP - CP.min(0), 6), CF)
+                if not any(value for key, value in topology.items() if key != "triangles"):
+                    voxel = resolution
+                    break
+            else:
+                raise PhidiasError("failed", f"Closing left topology defects. / El cierre conserva defectos de topología. {topology}")
         CP -= CP.min(0)
         size = export.write_stl(pdir / "closed.stl", CP, CF, project["name"])
         np.save(pdir / "closed_P.npy", CP.astype(np.float32))
@@ -775,6 +820,10 @@ class Services:
                 "seconds": round(time.time() - t0, 1), "at": time.time(), "log": run["log"],
                 "fill_interior": fill_interior, "cavities_filled": cavities}
         info["watertight"] = info["open_edges"] == 0
+        if topology is not None:
+            info["topology"] = topology
+        if bridge_gap_mm:
+            info["bridges"] = {"gap_limit_mm": bridge_gap_mm, "diameter_mm": 2, "spans_mm": bridges}
         project = self.store.get(pid)
         self._clear_split(project, pdir)
         if project.get("results", {}).get("asset", {}).get("source") == "closed":
@@ -1019,6 +1068,8 @@ class Services:
             dest = Path(folder).expanduser()
         elif self.settings["export_dir"]:
             dest = Path(self.settings["export_dir"])
+        elif project["source"].get("print_handoff", {}).get("piece_id"):
+            dest = self.config.data_dir / "exports"
         else:
             dest = Path(project["source"]["path"]).parent / "Phidias"
         try:

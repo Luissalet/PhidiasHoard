@@ -7,7 +7,7 @@ from __future__ import annotations
 import base64
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .config import DEFAULT_SETTINGS
 from .engine.preview import VIEWS
@@ -45,6 +45,7 @@ class ProjectId(BaseModel):
 
 class CloseArgs(ProjectId):
     fill_interior: bool = Field(True, description="Fill sealed cavities remaining after remeshing.")
+    bridge_gap_mm: float = Field(0, ge=0, le=20, description="Bridge nearby shells up to this gap in mm (0 keeps separate shells). / Une cuerpos cercanos hasta esta separación en mm (0 los deja separados).")
 
 
 class ScanArgs(BaseModel):
@@ -62,14 +63,21 @@ class CreateArgs(BaseModel):
 
 
 class PrintImportArgs(BaseModel):
-    source: str = Field(min_length=1, max_length=1000)
+    source: str = Field("", max_length=1000)
+    piece_id: int | None = Field(None, ge=1, description="Hub piece ID of a static GLB. / ID de pieza del Hub para un GLB estático.")
     source_sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
-    source_ref: str = Field(min_length=1, max_length=500)
+    source_ref: str = Field("", max_length=500)
     pose: str = Field(min_length=1, max_length=120)
     solid_base: bool = Field(description="The source already contains a solid base. / El origen ya contiene una peana sólida.")
     size_mm: float = Field(ge=10, le=2000)
     name: str = Field("", max_length=120)
 
+
+    @model_validator(mode="after")
+    def check_source(self):
+        if bool(self.source) == bool(self.piece_id) or (self.source and not self.source_ref):
+            raise ValueError("Supply piece_id or source with source_ref. / Indica piece_id o source con source_ref.")
+        return self
 
 class PrintUndoArgs(ProjectId):
     restore: bool = False
@@ -255,9 +263,10 @@ TOOLS: list[Tool] = [
     Tool("project_create", _d("Open a game model as a project: reads its geometry and materials and guesses a recipe for each material.",
                               "A ZIP is unpacked inside the project. FBX and .blend are converted locally to GLB with Blender; the source stays unchanged.", "nuevo proyecto, importar modelo"),
          CreateArgs, ann(draft_safe=True), lambda s, a: s.create_project(a.source, a.inner, a.name), timeout_s=300),
-    Tool("print_import", "Import a pinned pose and its solid base. Importa una pose fijada y su peana sólida. Use print_import_undo.",
+    Tool("print_import", "Import a static pose by piece ID or path. Importa una pose estática por ID de pieza o ruta.\n"
+         "Supply its hash and print size. Indica su huella y tamaño. Undo / Deshacer: print_import_undo.",
          PrintImportArgs, ann(draft_safe=True), lambda s, a: s.create_project(
-             a.source, name=a.name, print_handoff=a.model_dump(exclude={"source", "name"})), timeout_s=300),
+             a.source, name=a.name, print_handoff=a.model_dump(exclude={"source", "name"}, exclude_none=True)), timeout_s=300),
     Tool("print_import_undo", "Withdraw or restore a print handoff. Retira o restaura un relevo de impresión.",
          PrintUndoArgs, ann(idempotent=True), lambda s, a: s.undo_print_import(a.project_id, a.restore)),
     Tool("print_check", "Measure edge incidence in the exported 3MF. Comprueba las aristas del 3MF exportado.",
@@ -289,7 +298,7 @@ TOOLS: list[Tool] = [
          DirectArgs, ann(draft_safe=True), lambda s, a: s.start_direct(a.project_id, a.rounds, a.wish)),
     Tool("close_start", _d("Fuse the sculpt into one watertight solid with Blender (thickens loose sheets, voxel remesh). Returns a job id.",
                            "Detail finer than the voxel size (setting voxel_mm) is lost; the sculpt stays available.", "cerrar malla, estanco, manifold"),
-         CloseArgs, ann(draft_safe=True), lambda s, a: s.start_close(a.project_id, a.fill_interior)),
+         CloseArgs, ann(draft_safe=True), lambda s, a: s.start_close(a.project_id, a.fill_interior, a.bridge_gap_mm)),
     Tool("split_start", _d("Cut the watertight solid into two printable parts. Set the plane and optional mating pegs. Returns a job id.",
                            synonyms="partir malla, dividir para imprimir, encajes"),
          SplitArgs, ann(draft_safe=True), lambda s, a: s.start_split(a.project_id, a.model_dump(exclude={"project_id"}))),
