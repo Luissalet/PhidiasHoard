@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -12,6 +13,7 @@ from typing import Optional
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
+from scipy.spatial import cKDTree
 
 SCRIPT = Path(__file__).with_name("blender_close.py")
 IMPORT_SCRIPT = Path(__file__).with_name("blender_import.py")
@@ -55,14 +57,18 @@ def import_model(blender: str, source: Path, glb: Path, timeout_s: float = 180) 
         raise RuntimeError(f"Blender did not export the model.\n{tail}")
 
 
-def close_mesh(blender: str, ply_in: Path, stl_out: Path, voxel_mm: float, shell_mm: float, max_faces: int,
-               timeout_s: float = 3600) -> dict:
-    cmd = [blender, "-b", "--factory-startup", "--python", str(SCRIPT), "--", str(ply_in), str(stl_out),
+def close_mesh(blender: str, ply_in: Path, output: Path, voxel_mm: float, shell_mm: float, max_faces: int,
+               timeout_s: float = 3600, *, bridges: tuple = ()) -> dict:
+    cmd = [blender, "-b", "--factory-startup", "--python", str(SCRIPT), "--", str(ply_in), str(output),
            repr(float(voxel_mm)), repr(float(shell_mm)), str(int(max_faces))]
+    if bridges:
+        recipe = output.with_name("bridges.json")
+        recipe.write_text(json.dumps(bridges), encoding="utf-8")
+        cmd.append(str(recipe))
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     run = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, creationflags=flags)
     marks = [line for line in (run.stdout or "").splitlines() if line.startswith("PHIDIAS ")]
-    if run.returncode != 0 or not Path(stl_out).is_file():
+    if run.returncode != 0 or not output.is_file():
         tail = "\n".join(((run.stdout or "") + "\n" + (run.stderr or "")).strip().splitlines()[-12:])
         raise RuntimeError(f"Blender did not write the closed mesh.\n{tail}")
     return {"log": marks}
@@ -81,13 +87,36 @@ def read_stl(path: Path) -> tuple[np.ndarray, np.ndarray]:
     return P, inv.reshape(-1, 3).astype(np.int32)
 
 
+def _components(P: np.ndarray, F: np.ndarray):
+    return connected_components(
+        coo_matrix((np.ones(2 * len(F), dtype=bool), (F[:, :2].reshape(-1), F[:, 1:].reshape(-1))),
+                   shape=(len(P), len(P))), directed=False)
+
+
+def bridge_spans(points: np.ndarray, faces: np.ndarray, max_gap: float) -> tuple[list, int]:
+    """Nearest points of each nearby shell and the main solid, in print millimetres."""
+    count, labels = _components(points, faces)
+    if count <= 1:
+        return [], count
+    counts = np.bincount(labels)
+    main_label = counts.argmax()
+    main = points[labels == main_label]
+    tree = cKDTree(main)
+    bridges = []
+    for label in np.flatnonzero((counts > 1) & (np.arange(count) != main_label)):
+        part = points[labels == label]
+        distances, matches = tree.query(part, distance_upper_bound=max_gap)
+        nearest = distances.argmin()
+        if 0 < distances[nearest] <= max_gap:
+            bridges.append([main[matches[nearest]].tolist(), part[nearest].tolist()])
+    return bridges, count
+
+
 def fill_cavities(P: np.ndarray, F: np.ndarray) -> tuple[np.ndarray, np.ndarray, int]:
     """Drop inward-facing closed shells left by the remesh and any islands they enclose."""
     from .sculpt import open_edges
 
-    count, labels = connected_components(
-        coo_matrix((np.ones(2 * len(F), dtype=bool), (F[:, :2].reshape(-1), F[:, 1:].reshape(-1))),
-                   shape=(len(P), len(P))), directed=False)
+    count, labels = _components(P, F)
     if count < 2:
         return P, F, 0
     component = labels[F[:, 0]]

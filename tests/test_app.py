@@ -52,7 +52,8 @@ def test_health_and_catalogue(client):
     assert r.status_code == 200 and "can_close" in r.text
 
 
-def test_print_handoff_pins_pose_keeps_solid_base_and_checks_export(client, tmp_path):
+@pytest.mark.parametrize("by_piece", [False, True])
+def test_print_handoff_pins_pose_keeps_solid_base_and_checks_export(client, tmp_path, monkeypatch, by_piece):
     source = tmp_path / "pose.glb"
     vertices = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
     doc = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(vertices)}],
@@ -60,18 +61,36 @@ def test_print_handoff_pins_pose_keeps_solid_base_and_checks_export(client, tmp_
            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
            "nodes": [{"mesh": 0}], "scenes": [{"nodes": [0]}], "scene": 0}
-    chunk = json.dumps(doc).encode()
-    chunk += b" " * (-len(chunk) % 4)
-    data = (struct.pack("<4sII", b"glTF", 2, 28 + len(chunk) + len(vertices))
-            + struct.pack("<I4s", len(chunk), b"JSON") + chunk
-            + struct.pack("<I4s", len(vertices), b"BIN\0") + vertices)
-    source.write_bytes(data)
-    args = dict(source=str(source), source_sha256=sha256(data).hexdigest(),
-                source_ref="hoard://vulcan/pose/1", pose="turned", size_mm=216, solid_base=True)
+    def write_document(document):
+        chunk = json.dumps(document).encode()
+        chunk += b" " * (-len(chunk) % 4)
+        data = (struct.pack("<4sII", b"glTF", 2, 28 + len(chunk) + len(vertices))
+                + struct.pack("<I4s", len(chunk), b"JSON") + chunk
+                + struct.pack("<I4s", len(vertices), b"BIN\0") + vertices)
+        source.write_bytes(data)
+        return data
+
+    data = write_document(doc)
+    if by_piece:
+        def fetch(piece_id, target):
+            assert piece_id == 24
+            target.write_bytes(source.read_bytes())
+
+        monkeypatch.setattr(client.svc, "_fetch_pose", fetch)
+    entry = {"piece_id": 24} if by_piece else {"source": str(source), "source_ref": "hoard://vulcan/pose/1"}
+    args = dict(**entry, source_sha256=sha256(data).hexdigest(), pose="turned", size_mm=216, solid_base=True)
     stale = client.post("/api/ui/call", json={"name": "print_import", "arguments": {**args, "source_sha256": "0" * 64}})
     assert stale.status_code == 409 and not call(client, "project_list")["projects"]
+    animated = write_document({**doc, "animations": [{"channels": [], "samplers": []}]})
+    rejected = client.post("/api/ui/call", json={"name": "print_import",
+                           "arguments": {**args, "source_sha256": sha256(animated).hexdigest()}})
+    assert rejected.status_code == 400 and "Freeze the GLB" in rejected.text
+    assert not call(client, "project_list")["projects"]
+    source.write_bytes(data)
     project = call(client, "print_import", **args)
     assert project["source"]["print_handoff"]["pose"] == "turned"
+    if by_piece:
+        assert project["source"]["print_handoff"]["piece_id"] == 24
     assert project["settings"]["ground"] is False and project["settings"]["size_mm"] == 216
     pid = project["id"]
     withdrawn = call(client, "print_import_undo", **project["undo"])
@@ -98,6 +117,19 @@ def test_print_check_counts_three_faces_on_an_edge(client, tmp_path):
     assert report["sha256"] == sha256(path.read_bytes()).hexdigest()
     assert report["nonmanifold_edges"] == 1 and report["boundary_edges"] == 6
     assert report["winding_conflicts"] == report["degenerate_triangles"] == 0
+
+
+def test_bridge_spans_leave_distant_parts_separate():
+    import numpy as np
+
+    from phidias_hoard.engine.finish import bridge_spans
+
+    points = np.array([[0, 0, 0], [0, 1, 0], [0, 0, 1],
+                       [2, 0, 0], [3, 1, 0], [3, 0, 1],
+                       [8, 0, 0], [8, 1, 0], [8, 0, 1]], dtype=float)
+    faces = np.arange(9).reshape(3, 3)
+    assert bridge_spans(points, faces, 1.5) == ([], 3)
+    assert bridge_spans(points, faces, 2.5) == ([[[0., 0., 0.], [2., 0., 0.]]], 3)
 
 
 def test_library_lists_models_and_zips(client):

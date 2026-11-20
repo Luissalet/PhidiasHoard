@@ -312,10 +312,12 @@ def _unquote(uri: str) -> str:
     return unquote(uri)
 
 
-def load_gltf(path: Path) -> Scene:
+def load_gltf(path: Path, *, frozen: bool = False) -> Scene:
     path = Path(path)
     g = _Gltf(path)
     doc = g.doc
+    if frozen and (doc.get("animations") or any("skin" in node for node in doc.get("nodes", []))):
+        raise ValueError("Freeze the GLB at the selected frame first. / Congela el GLB en el fotograma elegido antes de importarlo.")
     pos, uvs, mats = [], [], []
     materials: list[Material] = []
     mat_index: dict[int, int] = {}
