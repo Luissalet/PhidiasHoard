@@ -78,7 +78,7 @@ the lines of a column, roof tiles) is carved into the mesh, at the size you are 
 - **3D view and pictures**: original, sculpt, closed solid and game asset in the browser; pictures shaded from the geometry
   itself, from any angle, zoomed on a spot, or next to the original.
 - **STL** in millimetres with the base at z = 0, downloaded or saved in a `Phidias` folder next to the source model.
-- **Print files**: export a 3MF with the sculpt's material assignments. Split a watertight solid on an X, Y or Z
+- **Print files**: import a pinned pose with its print size and solid base, and check the topology of the exported 3MF. Export a 3MF with the sculpt's material assignments. Split a watertight solid on an X, Y or Z
   plane, optionally with mating pegs. Download both STL parts or a 3MF with the two parts laid out separately.
 
 ## Connection with Faustus and Hoard Hub

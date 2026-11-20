@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from hashlib import file_digest
+from xml.etree import ElementTree
 from xml.sax.saxutils import quoteattr
 import zipfile
+
+import numpy as np
 
 
 _NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
@@ -53,3 +57,60 @@ def write(path, parts, palette):
             line('</resources><build>')
             line("".join(f'<item objectid="{ident}"/>' for ident in range(2, len(parts) + 2)))
             line('</build></model>')
+
+
+def _mesh_topology(points, faces):
+    points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    faces = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
+    if not len(points) or not len(faces) or not np.isfinite(points).all() or faces.min() < 0 or faces.max() >= len(points):
+        raise ValueError("Invalid mesh vertices or triangle indices.")
+    sides = np.roll(faces, -1, axis=1)
+    keys = (np.minimum(faces, sides) * len(points) + np.maximum(faces, sides)).ravel()
+    order = np.argsort(keys)
+    starts = np.r_[0, np.flatnonzero(np.diff(keys[order])) + 1]
+    counts = np.diff(np.r_[starts, len(keys)])
+    orientations = np.add.reduceat(np.where((faces < sides).ravel()[order], 1, -1), starts)
+    a, b, c = points[faces].transpose(1, 0, 2)
+    degenerate = int(np.count_nonzero(~np.any(np.cross(b - a, c - a), axis=1)))
+    return {"triangles": len(faces), "boundary_edges": int(np.count_nonzero(counts == 1)),
+            "nonmanifold_edges": int(np.count_nonzero(counts > 2)),
+            "winding_conflicts": int(np.count_nonzero((counts == 2) & (orientations != 0))),
+            "degenerate_triangles": degenerate}
+
+
+def check(path):
+    """Inspect the stored, indexed meshes of a Phidias 3MF in its actual export precision."""
+    prefix = "{" + _NS + "}"
+    objects, build, unit = {}, [], None
+    with path.open("rb") as raw:
+        digest = file_digest(raw, "sha256").hexdigest()
+        raw.seek(0)
+        try:
+            with zipfile.ZipFile(raw) as package, package.open("3D/3dmodel.model") as model:
+                for event, element in ElementTree.iterparse(model, events=("start", "end")):
+                    tag = element.tag.removeprefix(prefix)
+                    if event == "start":
+                        if tag == "model":
+                            unit = element.get("unit", "millimeter")
+                        elif tag == "object":
+                            points, faces = [], []
+                        continue
+                    if tag == "vertex":
+                        points.append(tuple(float(element.attrib[k]) for k in ("x", "y", "z")))
+                    elif tag == "triangle":
+                        faces.append(tuple(int(element.attrib[k]) for k in ("v1", "v2", "v3")))
+                    elif tag == "object" and faces:
+                        objects[element.attrib["id"]] = {
+                            "name": element.get("name", ""), **_mesh_topology(points, faces)}
+                    elif tag == "item":
+                        build.append(element.attrib["objectid"])
+                    element.clear()
+        except (ElementTree.ParseError, KeyError, zipfile.BadZipFile) as exc:
+            raise ValueError("Unreadable 3MF Core model.") from exc
+    if unit is None or not build or any(ident not in objects for ident in build):
+        raise ValueError("Expected a 3MF build containing direct mesh objects.")
+    parts = [{"id": ident, **objects[ident]} for ident in dict.fromkeys(build)]
+    totals = {key: sum(objects[ident][key] for ident in build)
+              for key in ("triangles", "boundary_edges", "nonmanifold_edges", "winding_conflicts", "degenerate_triangles")}
+    return {"sha256": digest, "unit": unit, "objects": parts, **totals,
+            "closed_oriented_edges": not any(totals[key] for key in totals if key != "triangles")}

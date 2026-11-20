@@ -86,7 +86,7 @@ milímetros.
   oclusión ambiental horneados desde la malla alta. Escribe glTF (`.glb`, con los dos mapas dentro) y FBX en metros
   con la base en el suelo, y los mapas también en PNG. Eliges las caras, la resolución de los mapas, las muestras
   de oclusión y el tamaño.
-- **Archivos de impresión**: exporta el esculpido a 3MF con sus materiales. Parte un sólido cerrado por un plano
+- **Archivos de impresión**: importa una revisión de la pose con su escala de impresión y su peana sólida, y comprueba la topología del 3MF exportado. Exporta el esculpido a 3MF con sus materiales. Parte un sólido cerrado por un plano
   X, Y o Z y añade encajes con la holgura que indiques. Descarga los dos STL o un 3MF con las piezas separadas.
 
 ## Conexión con Faustus y Hoard Hub

@@ -61,6 +61,24 @@ class CreateArgs(BaseModel):
     name: str = Field("", max_length=120)
 
 
+class PrintImportArgs(BaseModel):
+    source: str = Field(min_length=1, max_length=1000)
+    source_sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    source_ref: str = Field(min_length=1, max_length=500)
+    pose: str = Field(min_length=1, max_length=120)
+    solid_base: bool = Field(description="The source already contains a solid base. / El origen ya contiene una peana sólida.")
+    size_mm: float = Field(ge=10, le=2000)
+    name: str = Field("", max_length=120)
+
+
+class PrintUndoArgs(ProjectId):
+    restore: bool = False
+
+
+class PrintCheckArgs(BaseModel):
+    path: str = Field(min_length=1, max_length=1000)
+
+
 class SetArgs(ProjectId):
     name: Optional[str] = Field(None, max_length=120)
     size_mm: Optional[float] = Field(None, ge=10, le=2000, description="Longest side of the print in millimetres.")
@@ -237,6 +255,13 @@ TOOLS: list[Tool] = [
     Tool("project_create", _d("Open a game model as a project: reads its geometry and materials and guesses a recipe for each material.",
                               "A ZIP is unpacked inside the project. FBX and .blend are converted locally to GLB with Blender; the source stays unchanged.", "nuevo proyecto, importar modelo"),
          CreateArgs, ann(draft_safe=True), lambda s, a: s.create_project(a.source, a.inner, a.name), timeout_s=300),
+    Tool("print_import", "Import a pinned pose and its solid base. Importa una pose fijada y su peana sólida. Use print_import_undo.",
+         PrintImportArgs, ann(draft_safe=True), lambda s, a: s.create_project(
+             a.source, name=a.name, print_handoff=a.model_dump(exclude={"source", "name"})), timeout_s=300),
+    Tool("print_import_undo", "Withdraw or restore a print handoff. Retira o restaura un relevo de impresión.",
+         PrintUndoArgs, ann(idempotent=True), lambda s, a: s.undo_print_import(a.project_id, a.restore)),
+    Tool("print_check", "Measure edge incidence in the exported 3MF. Comprueba las aristas del 3MF exportado.",
+         PrintCheckArgs, ann(read_only=True), lambda s, a: s.check_print(a.path), timeout_s=120),
     Tool("project_get", _d("A project: source, print settings, every material with its recipe and what its texture holds, and the results."),
          ProjectId, ann(read_only=True), lambda s, a: s.project(a.project_id)),
     Tool("project_set", _d("Change a project's name, print size, detail, triangle budget, ground block or plinth.", synonyms="tamaño, detalle, peana"),
